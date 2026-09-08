@@ -12,7 +12,7 @@ _Release commit: `f82f41947`, tag `v1.4.0`; source integrated and pushed on `mod
 
 ## Current focus
 
-Upstream sync and automatic Codex model discovery are implemented, reviewed and installed locally. GitHub release 1.4.0 is public with all three platform archives. npm publishing awaits the registry publishing-authentication requirement; registry `latest` remains 1.3.2.
+**v1.4.0 shipped on 2026-09-08.** Upstream sync and automatic Codex discovery are complete. npm registry-direct `latest` is 1.4.0, GitHub has all three verified archives, and a fresh installation from npm runs 1.4.0 and matches the verified Windows binary hash.
 
 ## State
 
@@ -20,14 +20,12 @@ Upstream sync and automatic Codex model discovery are implemented, reviewed and 
 - **Done:** live Codex catalog, profile/credential/version-isolated five-minute cache, bounded refresh and catalog requests, labeled offline fallback, and future bare model IDs. Actual Astra discovery and a tool call followed by visible `CODEX_OAUTH_OK` succeeded using the existing native Codex login.
 - **Done:** independent review closed all three findings: legacy OAuth credential preservation, BYOK suppression of sponsored polling, and bounded OAuth refresh. Review artifact lives in this Traycer epic under `artifacts/upstream-integration-review/index.md`.
 - **Done:** Windows, Linux x64 and Linux arm64 archives built; each includes executable + `tree-sitter.wasm`. GitHub asset SHA-256 digests match the local archives. Packaged Windows startup and installed `cbm --version` both report 1.4.0. Linux archives were checked for architecture and contents but not executed on Linux.
-- **Blocked:** npm login now succeeds for the publisher. The subsequent publish is rejected with E403 requiring publishing 2FA (or an explicitly authorized compatible publishing token). npm 1.4.0 is not published; dry-run passed and GitHub assets already exist. Use the standard interactive 2FA flow; do not weaken account/package security automatically.
-- **Authentication:** all three saved Codebuff Codex profiles return 401 on refresh. They were not overwritten with the native Codex account's tokens. Reconnect the desired account using `/providers:add codex`. The active `opencode-go` provider is unchanged.
+- **Blocked:** none for implementation or release. npm publishing completed after interactive login and publishing 2FA approval.
+- **Authentication:** at validation, three saved Codebuff Codex profiles returned 401 on refresh. They were not overwritten with the native Codex account's tokens. Reconnect the desired account using `/providers:add codex`. The active `opencode-go` provider is unchanged.
 
 ## Pick up here
 
-1. Complete the required npm publishing authentication, verify ownership (`npm whoami`), then run `npm publish` from `cli/release` per [MERGE-STRATEGY](../MERGE-STRATEGY.md). GitHub release/tag/assets already exist; do not recreate them or overwrite the tag.
-2. Verify registry-direct `codebuff-mod/latest` is 1.4.0, then update this handoff and [[overview]].
-3. For Codex use, run `cbm`, `/providers:add codex`, complete browser OAuth, then `/model`. Newly discovered account models use bare IDs such as `gpt-6-astra`.
+No active code or release work. For live Codex use, reconnect the desired expired profile using `cbm` ? `/providers:add codex`, complete browser OAuth, then `/model`. Discovery shows account-visible bare IDs such as `gpt-6-astra`; no account credentials were imported from native Codex. The existing active provider was preserved.
 
 ## Verification and limits
 
@@ -38,7 +36,8 @@ Upstream sync and automatic Codex model discovery are implemented, reviewed and 
 
 ## Recent context
 
-- The launcher fetches npm's published version. Installing the unpublished 1.4.0 wrapper initially downloaded 1.3.2. The verified 1.4.0 executable/WASM and truthful version metadata were installed in the local cache afterward; `cbm --version` is now 1.4.0. Rollback copies have suffix `.before-1.4.0-001531c455ce4ae2a4c95915c63aa521` in `~/.config/manicode`.
+- The launcher fetches npm's published version. Installing the unpublished 1.4.0 wrapper initially downloaded 1.3.2. The verified 1.4.0 executable/WASM and version metadata were installed in the cache while publication was pending. After publication, a fresh `npm install -g codebuff-mod@1.4.0` downloaded the correct GitHub archive and again returned 1.4.0; its binary hash matches the verified build. Rollback copies have suffix `.before-1.4.0-001531c455ce4ae2a4c95915c63aa521` in `~/.config/manicode`.
+- npm identity alone did not satisfy publishing policy. Login, account 2FA setup and approval of the exact active publish URL completed the release. Preserve account security; use native interactive approval for future releases.
 - Package requests on this machine needed `NODE_EXTRA_CA_CERTS=C:/Users/S.D/AppData/Local/Temp/codebuff-windows-trust.pem`, exported from existing Windows trust roots. TLS verification and permanent settings were preserved.
 - Linux cross-builds used the existing `BUN_COMPILE_EXECUTABLE_PATH` override with integrity-verified Bun 1.3.14 runtimes; a spaceless junction alone was insufficient. See the release runbook.
 - Automatic discovery remains protocol-version gated. Current verified compatibility is 0.153.4; new model names require no catalog edit, but newer protocol requirements may require a compatibility update.

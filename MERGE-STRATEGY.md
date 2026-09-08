@@ -216,6 +216,8 @@ cd ../..
 
 **6f. Post-ship:** update `.context/active-work.md` + `.context/overview.md` to the new version; run a live BYOK smoke on the published binary against a real provider (and ideally confirm a cross-compiled linux tarball actually runs on linux — it's built on Windows).
 
+**Publishing authentication:** successful `npm whoami` verifies identity, not publishing approval. Use npm's native interactive 2FA flow when the registry requests it. An agent without browser access can run `npm publish --auth-type=web --browser=false` and give the user the exact live approval URL. Older tabs belong to different requests. Keep normal network retries while waiting for approval; preserve account/package security settings. Confirm registry-direct `latest` after success, then install the published package and verify its binary version. Installing a local wrapper before publication still fetches npm's currently published binary.
+
 ---
 
 ## Conflict map
