@@ -20,7 +20,7 @@ Upstream sync and automatic Codex model discovery are implemented, reviewed and 
 - **Done:** live Codex catalog, profile/credential/version-isolated five-minute cache, bounded refresh and catalog requests, labeled offline fallback, and future bare model IDs. Actual Astra discovery and a tool call followed by visible `CODEX_OAUTH_OK` succeeded using the existing native Codex login.
 - **Done:** independent review closed all three findings: legacy OAuth credential preservation, BYOK suppression of sponsored polling, and bounded OAuth refresh. Review artifact lives in this Traycer epic under `artifacts/upstream-integration-review/index.md`.
 - **Done:** Windows, Linux x64 and Linux arm64 archives built; each includes executable + `tree-sitter.wasm`. GitHub asset SHA-256 digests match the local archives. Packaged Windows startup and installed `cbm --version` both report 1.4.0. Linux archives were checked for architecture and contents but not executed on Linux.
-- **Blocked:** npm `whoami` returns HTTP 401. npm publish dry-run passed (five launcher files, 9.4 kB); actual publish has NOT run. No browser is connected to the agent runtime, so interactive sign-in needs the user.
+- **Blocked:** npm `whoami` returns HTTP 401. npm publish dry-run passed (five launcher files, 9.4 kB); a subsequent publish attempt was rejected with E404 while whoami still returned 401. npm 1.4.0 is not published. No browser is connected to the agent runtime, so interactive sign-in needs the user.
 - **Authentication:** all three saved Codebuff Codex profiles return 401 on refresh. They were not overwritten with the native Codex account's tokens. Reconnect the desired account using `/providers:add codex`. The active `opencode-go` provider is unchanged.
 
 ## Pick up here
