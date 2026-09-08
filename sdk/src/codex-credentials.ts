@@ -143,6 +143,8 @@ export const refreshCodexCredentials = async (
     try {
       const response = await fetch(CHATGPT_OAUTH_TOKEN_URL, {
         method: 'POST',
+        signal: AbortSignal.timeout(5_000),
+        redirect: 'error',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           grant_type: 'refresh_token',

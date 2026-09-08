@@ -1,10 +1,24 @@
-import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  spyOn,
+  test,
+} from 'bun:test'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 
 import { toOpenAIModelId } from '@codebuff/common/constants/chatgpt-oauth'
-import { getActiveByokProfile, setActiveByokProfile } from '@codebuff/sdk'
+import {
+  getActiveByokProfile,
+  getValidCodexCredentials,
+  saveCodexCredentials,
+  setActiveByokProfile,
+} from '@codebuff/sdk'
+import * as sdkCredentials from '../../../../sdk/src/credentials'
 
 import { clearCachedModels, getModelsForPreset } from '../providers-models'
 import { addProfile, getActiveProfile } from '../providers'
@@ -67,6 +81,55 @@ function options(fetchImpl: typeof fetch) {
 }
 
 describe('Codex OAuth model discovery', () => {
+  test('stalled credential refresh returns fallback and releases the shared refresh promise', async () => {
+    const originalFetch = globalThis.fetch
+    const nativeTimeout = AbortSignal.timeout.bind(AbortSignal)
+    let finishRefresh = () => {}
+    let pending: ReturnType<typeof getModelsForPreset> | undefined
+    spyOn(sdkCredentials, 'getConfigDir').mockReturnValue(directory)
+    spyOn(AbortSignal, 'timeout').mockImplementation((ms) => {
+      expect(ms).toBeLessThanOrEqual(5_000)
+      return nativeTimeout(5)
+    })
+    saveCodexCredentials('expired-profile', { ...credentials, expiresAt: 0 })
+    globalThis.fetch = (async (_url: RequestInfo | URL, init?: RequestInit) =>
+      new Promise<Response>((resolve, reject) => {
+        finishRefresh = () => resolve(new Response('', { status: 401 }))
+        init?.signal?.addEventListener(
+          'abort',
+          () => reject(init.signal?.reason),
+          { once: true },
+        )
+      })) as unknown as typeof fetch
+    try {
+      pending = getModelsForPreset({
+        ...options(originalFetch),
+        oauthProfileId: 'expired-profile',
+        getCodexCredentials: getValidCodexCredentials,
+      })
+      const result = await Promise.race([
+        pending,
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), 100)),
+      ])
+      expect(result?.source).toBe('catalog')
+      expect(result?.warning).toContain('/providers:add codex')
+      globalThis.fetch = (async () =>
+        Response.json({
+          access_token: 'renewed-token',
+          refresh_token: 'renewed-refresh',
+          expires_in: 3600,
+        })) as unknown as typeof fetch
+      expect(
+        (await getValidCodexCredentials('expired-profile'))?.accessToken,
+      ).toBe('renewed-token')
+    } finally {
+      finishRefresh()
+      await pending
+      globalThis.fetch = originalFetch
+      mock.restore()
+    }
+  })
+
   test('discovers ordered visible models with profile auth and routable future IDs', async () => {
     let requestedUrl = ''
     let request: RequestInit | undefined
