@@ -161,27 +161,29 @@ git commit -m "chore(release): bump to X.Y.Z — <one-line reason>"
 ```
 Choose the bump by user impact on the CLI: new tools/models = minor; bugfix-only = patch. (Internal churn like a backend removal does not force a major because CLI behavior stays back-compatible.)
 
-**6b. Build all three platform binaries @ the new version** (the binary embeds `CODEBUFF_CLI_VERSION`, so rebuild AFTER the bump). win32 is the host (native); linux is cross-compiled via `OVERRIDE_*` env (bun cross-targets + fetches the per-platform OpenTUI native bundle from npm). Each build overwrites `cli/bin/codebuff-mod[.exe]`, so **package each tarball immediately after its build**. The tarball is the **binary only** (no wasm sibling — that matches every prior shipped release):
+**6b. Build all three platform binaries @ the new version** (the binary embeds `CODEBUFF_CLI_VERSION`, so rebuild AFTER the bump). win32 is the host (native); linux is cross-compiled via `OVERRIDE_*` env. Each build overwrites `cli/bin/codebuff-mod[.exe]`, so **package each tarball immediately after its build**. Include **the binary and `tree-sitter.wasm`**: the compiled parser reads the sibling, and the fork launcher already installs it. Earlier binary-only packaging relied on a CDN fallback and was incomplete for offline use.
 ```bash
 cd cli
 
 # win32-x64 (host)
 bun run build:binary
 ./bin/codebuff-mod.exe --version                    # must print X.Y.Z
-tar -czf dist-binaries/codebuff-mod-win32-x64.tar.gz -C bin codebuff-mod.exe
+tar -czf dist-binaries/codebuff-mod-win32-x64.tar.gz -C bin codebuff-mod.exe tree-sitter.wasm
 
 # linux-x64 (cross)
 OVERRIDE_TARGET=bun-linux-x64 OVERRIDE_PLATFORM=linux OVERRIDE_ARCH=x64 bun run build:binary
-tar -czf dist-binaries/codebuff-mod-linux-x64.tar.gz -C bin codebuff-mod
+tar -czf dist-binaries/codebuff-mod-linux-x64.tar.gz -C bin codebuff-mod tree-sitter.wasm
 
 # linux-arm64 (cross)
 OVERRIDE_TARGET=bun-linux-arm64 OVERRIDE_PLATFORM=linux OVERRIDE_ARCH=arm64 bun run build:binary
-tar -czf dist-binaries/codebuff-mod-linux-arm64.tar.gz -C bin codebuff-mod
+tar -czf dist-binaries/codebuff-mod-linux-arm64.tar.gz -C bin codebuff-mod tree-sitter.wasm
 
 ls -la dist-binaries/*.tar.gz                        # 3 files, ~47-50 MB each
 cd ..
 ```
 `cli/bin/` and `cli/dist-binaries/` are gitignored — these artifacts never enter git. (macOS targets `darwin-x64`/`darwin-arm64` exist in `build-binary.ts` but are deferred — not shipped.)
+
+**Windows cross-build extraction:** a junction alone may still resolve to the spaced repository path. If Bun cannot extract the Linux executable, use the script's existing `BUN_COMPILE_EXECUTABLE_PATH` override with the matching `@oven/bun-linux-x64` or `@oven/bun-linux-aarch64` executable. Fetch the exact installed Bun version from npm, verify its registry integrity hash, extract with native tar, then pass the extracted `package/bin/bun`. This avoids changing the installed Bun version or disabling TLS. On this machine, package requests may need `NODE_EXTRA_CA_CERTS` pointing to a temporary PEM export of the already-trusted Windows root certificates.
 
 **6c. Push branch + tag:**
 ```bash
