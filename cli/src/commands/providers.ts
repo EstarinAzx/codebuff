@@ -379,36 +379,41 @@ export function handleProvidersRefreshModels(): string {
   const removed = clearCachedModels({
     preset: profile.preset,
     baseUrl: profile.baseUrl,
+    oauthProfileId: profile.oauthProfileId ?? profile.id,
   })
   return removed
     ? `Cleared models cache for "${profile.name}". Next picker open will re-probe.`
     : `No cached models for "${profile.name}". Cache was already empty.`
 }
 
-export async function handleModelCommand(args: string): Promise<string> {
+export async function handleModelCommand(
+  args: string,
+  lookupModels = getModelsForPreset,
+): Promise<string> {
   const profile = getActiveProfile()
   if (!profile) return 'No active profile. Add one with /providers:add.'
   const target = args.trim()
   if (!target) {
-    // Unified path: catalog presets (incl. codex) short-circuit before any
-    // network I/O; live-probe presets (openrouter/together/groq) still hit
-    // the cache-then-probe flow; custom-openai returns the freetext source.
+    // Codex discovers account-visible models; other presets retain their catalog/probe policy.
     try {
-      const { source, models } = await getModelsForPreset({
+      const { source, models, warning } = await lookupModels({
         preset: profile.preset,
         baseUrl: profile.baseUrl,
         apiKey: profile.apiKey,
+        oauthProfileId: profile.oauthProfileId ?? profile.id,
       })
       const head = models.slice(0, 20)
       const tail = models.length > 20 ? `\n  …(${models.length - 20} more)` : ''
       const sourceLabel = {
         catalog: 'curated catalog',
-        probe: `live ${profile.baseUrl}/models`,
-        cache: `cached ${profile.baseUrl}/models`,
+        probe: profile.preset === 'codex' ? 'live Codex account catalog' : `live ${profile.baseUrl}/models`,
+        cache: profile.preset === 'codex' ? 'cached Codex account catalog' : `cached ${profile.baseUrl}/models`,
+        'stale-cache': 'previous Codex account catalog (offline)',
         freetext: 'free-text (no list available)',
       }[source]
       return [
         `Current model: ${profile.model || '<unset>'}`,
+        ...(warning ? ['', warning] : []),
         '',
         `Available (${sourceLabel}):`,
         ...head.map((m) => `  ${m}`),

@@ -271,23 +271,17 @@ The fork loosens backend/Stripe/PostHog `NEXT_PUBLIC_*` vars to `.default(...)` 
 
 **Resolve:** keep the fork's defaulted/optional forms; **union in** any new upstream vars (new optional vars merge verbatim; new required vars must be softened to `.default()`/`.optional()` or the standalone CLI throws at boot). See the `PORT:` comment block in the file. See [.context/decisions.md](./.context/decisions.md) "Propagate the BYOK env-gate to all backend-touching surfaces".
 
-#### `common/src/constants/chatgpt-oauth.ts` — `OPENROUTER_TO_OPENAI_MODEL_MAP`
+#### `common/src/constants/chatgpt-oauth.ts` — OAuth compatibility and fallback
 
-Single source of truth for codex-routable model ids. `Object.keys(map)` feeds BOTH `isChatGptOAuthModelAllowed` (the `/connect:chatgpt` allowlist) and `MODEL_CATALOG.codex` in `cli/src/utils/providers-models.ts` (the `/model` picker on codex profiles). Insertion order = picker display order.
-
-**Resolve:** keep all fork-added ids; merge upstream additions at their position. Do NOT split the map — the single-source invariant is load-bearing. Do NOT adopt any upstream live-probe for codex (the fork ripped that out at 1.0.0; the endpoint doesn't exist for OAuth-bearer tokens).
-```bash
-grep -c "^\s*'[^']*':" common/src/constants/chatgpt-oauth.ts   # expect >= 22
-```
+`OPENROUTER_TO_OPENAI_MODEL_MAP` is the legacy Path A allowlist and offline fallback, including Astra and the GPT-5.6 family. It is not the account's availability list. Keep existing aliases. `CODEX_CLIENT_VERSION` records the verified protocol version used for discovery; changing it requires checking the current Codex contract and a live tool-call round trip.
 
 #### `cli/src/utils/providers-models.ts`
 
-`MODEL_CATALOG.codex` derives from `Object.keys(OPENROUTER_TO_OPENAI_MODEL_MAP)` (not a hand list). `opencode-go` is in the **empty-catalog set** (`'opencode-go': []`) so it live-probes. `fetchCodexModelsFromEndpoint` was deleted at 1.0.0 — keep it deleted.
+Codex takes a dedicated branch in the shared orchestrator: authenticated `GET https://chatgpt.com/backend-api/codex/models?client_version=...`, five-second timeout, redirects rejected. It keeps `visibility: list`, orders by priority, and uses bare slugs so newly discovered IDs route through Path C without map edits. `supported_in_api: false` does not exclude subscription models. The older `/backend-api/models` probe was the wrong endpoint.
 
-**Resolve:** keep codex flowing through the same orchestrator every preset uses; keep `opencode-go` empty (probes `https://opencode.ai/zen/go/v1/models`).
-```bash
-grep -n "fetchCodexModelsFromEndpoint" cli/src/utils/providers-models.ts   # ZERO hits
-```
+**Resolve:** retain profile-linked credentials and the cache key's profile, token hash and protocol version. Codex cache lifetime is five minutes; `/providers:refresh-models` clears only that OAuth profile. Offline results carry a visible warning and use the same identity's stale cache or the bundled fallback. Refresh must not change the active model. Keep `opencode-go` in the empty-catalog set for its existing generic `/models` probe.
+
+**Limit:** automatic catalog updates work within the supported protocol version. The service hides models requiring a newer client; it hid Astra at `0.152.0` and exposed it at verified `0.153.4`. Do not fake a high version or borrow another account's native Codex cache.
 
 #### Web-tools direct dispatch surface (since the web_search/read_docs rewire)
 
@@ -492,9 +486,9 @@ Run before pushing `modded`. None should fail.
 | BYOK env-gate everywhere | `git grep "CODEBUFF_USE_BACKEND" cli/src/ sdk/src/` | index.tsx, app.tsx, use-auth-query.ts, the 3 BYOK_AT_BOOT hooks, command-registry.ts (/logout), database.ts |
 | `/providers` commands | `grep -n "providers:" cli/src/commands/command-registry.ts` | all registered |
 | mod-* prebuild | `grep -n "scanModAgents\|mod-" cli/scripts/prebuild-agents.ts` | scan call present |
-| Codex OAuth catalog | `grep -c "^\s*'[^']*':" common/src/constants/chatgpt-oauth.ts` | >= 22 |
-| Codex picker derives from map | `grep -n "MODEL_CATALOG\[.codex.\]\|codex:.*OPENROUTER" cli/src/utils/providers-models.ts` | derived, no hand-list |
-| Dead codex probe gone | `git grep -n "fetchCodexModelsFromEndpoint" cli/src/` | ZERO |
+| Codex discovery, refresh and routing | `cd cli && bun test src/utils/__tests__/providers-models-codex.test.ts` | live catalog contract, profile isolation, fallback, cache clearing and model selection pass |
+| OAuth credentials survive CLI changes | `cd cli && bun test src/utils/__tests__/auth-oauth-preservation.test.ts` | save/logout preserve legacy OAuth |
+| New sponsored producer respects BYOK | `cd cli && bun test src/hooks/__tests__/sponsored-proposal-byok.test.ts` | no repository lookup or request in BYOK mode |
 | opencode-go BYOK lane | `grep -n "'opencode-go': \[\]" cli/src/utils/providers-models.ts` | empty catalog (live-probe) |
 | Codex creds module | `ls sdk/src/codex-credentials.ts` | exists |
 | `oauthProfileId` plumbed | `git grep "oauthProfileId" cli/src/ sdk/src/` | providers.ts, providers handler, model-provider.ts, buildSdkBindings |
@@ -502,7 +496,7 @@ Run before pushing `modded`. None should fail.
 | Build | `cd cli && bun run build:binary` | `✅ Built codebuff-mod.exe` |
 | Boot smoke | `./cli/bin/codebuff-mod.exe --version` | prints version, exit 0 |
 | Smoke (raw-key) | `cbm` → `/providers:add openrouter <key>` → small prompt | binds + responds |
-| Smoke (codex OAuth) | `cbm` → `/providers:add codex` → browser flow → `/model` → small prompt | OAuth completes, >=22 picker, dispatch succeeds |
+| Smoke (codex OAuth) | `cbm` → `/providers:add codex` → browser flow → `/model` → small prompt | live account models appear; a tool call ends with visible text |
 
 (Removed vs the pre-B version: the env-architecture allowlist check and the `web/_post.ts` `dispatchOverrides` check — both targets are deleted.)
 

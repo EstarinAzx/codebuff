@@ -49,6 +49,7 @@ export {
   getCodexCredentialsPath,
 } from './codex-credentials'
 export type { CodexCredentialsFile } from './codex-credentials'
+export { extractChatGptAccountId } from './impl/chatgpt-backend-fetch'
 export { loadLocalAgents } from './agents/load-agents'
 export { loadMCPConfig, loadMCPConfigSync } from './agents/load-mcp-config'
 export {

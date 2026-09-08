@@ -4,8 +4,9 @@
  *   - live `/v1/models` probe (churning catalogs — OpenRouter, Together, Groq)
  *   - free-text input (custom-openai)
  *
- * Live probe results land in a 24h disk cache at `<configDir>/models-cache.json`.
- * Cache busted by `/providers:refresh-models` (Phase 3).
+ * Live probe results land in `<configDir>/models-cache.json`: 5 minutes for
+ * account-scoped Codex discovery, 24 hours for generic providers.
+ * Cache busted by `/providers:refresh-models`.
  *
  * Consumed by `/providers:add` step 4 model picker and `/model` runtime swap.
  */
@@ -13,27 +14,26 @@
 import fs from 'fs'
 import os from 'os'
 import path from 'path'
+import { createHash } from 'node:crypto'
 
-import { OPENROUTER_TO_OPENAI_MODEL_MAP } from '@codebuff/common/constants/chatgpt-oauth'
+import {
+  CHATGPT_BACKEND_BASE_URL,
+  CODEX_CLIENT_VERSION,
+  OPENROUTER_TO_OPENAI_MODEL_MAP,
+} from '@codebuff/common/constants/chatgpt-oauth'
+import {
+  extractChatGptAccountId,
+  getValidCodexCredentials,
+} from '@codebuff/sdk'
 
 import type { ProviderPreset } from './providers'
 
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000
+const CODEX_CACHE_TTL_MS = 5 * 60 * 1000
 
 export const MODEL_CATALOG: Record<ProviderPreset, string[]> = {
-  openai: [
-    'gpt-5.1',
-    'gpt-5.1-chat',
-    'gpt-4.1',
-    'gpt-4o',
-    'o3',
-    'o4-mini',
-  ],
-  anthropic: [
-    'claude-sonnet-4.5',
-    'claude-opus-4.1',
-    'claude-3.5-haiku',
-  ],
+  openai: ['gpt-5.1', 'gpt-5.1-chat', 'gpt-4.1', 'gpt-4o', 'o3', 'o4-mini'],
+  anthropic: ['claude-sonnet-4.5', 'claude-opus-4.1', 'claude-3.5-haiku'],
   opencode: ['opencode/minimax-m2.7', 'opencode/kimi-k2.6'],
   deepseek: ['deepseek-chat', 'deepseek-reasoner'],
   gemini: ['gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-2.0-flash'],
@@ -46,21 +46,19 @@ export const MODEL_CATALOG: Record<ProviderPreset, string[]> = {
   // probe it instead of a stale hardcoded id. Probe returns raw ids
   // (e.g. `glm-5`), which is what Path C dispatch must send to the endpoint.
   'opencode-go': [],
-  // Codex: fixed catalog derived from the OAuth allowlist — no live probe.
-  // The ChatGPT backend exposes no /models route to OAuth-bearer tokens;
-  // Codex CLI itself ships a fixed catalog for the same reason. Keys of
-  // OPENROUTER_TO_OPENAI_MODEL_MAP are the authoritative routable set so
-  // catalog and dispatch allowlist cannot drift apart.
-  codex: Object.keys(OPENROUTER_TO_OPENAI_MODEL_MAP),
+  // Offline fallback only. Live slugs are bare IDs, which Path C routes directly.
+  codex: Object.values(OPENROUTER_TO_OPENAI_MODEL_MAP),
   // Empty + special-cased → free-text input
   'custom-openai': [],
 }
 
-export type ModelSource = 'catalog' | 'probe' | 'cache' | 'freetext'
+export type ModelSource =
+  'catalog' | 'probe' | 'cache' | 'stale-cache' | 'freetext'
 
 export type ModelLookupResult = {
   source: ModelSource
   models: string[]
+  warning?: string
 }
 
 // ── path resolution ──────────────────────────────────────────────────────
@@ -88,6 +86,10 @@ function cacheKey(preset: ProviderPreset, baseUrl: string): string {
   return `${preset}:${baseUrl.replace(/\/+$/, '')}`
 }
 
+function codexCachePrefix(profileId: string): string {
+  return `codex-profile:${encodeURIComponent(profileId)}:`
+}
+
 function readCacheFile(filePath: string): CacheFile {
   if (!fs.existsSync(filePath)) return {}
   try {
@@ -98,7 +100,8 @@ function readCacheFile(filePath: string): CacheFile {
     for (const [k, v] of Object.entries(parsed as Record<string, unknown>)) {
       if (!v || typeof v !== 'object') continue
       const entry = v as Record<string, unknown>
-      const fetchedAt = typeof entry.fetchedAt === 'number' ? entry.fetchedAt : NaN
+      const fetchedAt =
+        typeof entry.fetchedAt === 'number' ? entry.fetchedAt : NaN
       const models = Array.isArray(entry.models)
         ? entry.models.filter((m): m is string => typeof m === 'string')
         : null
@@ -158,13 +161,21 @@ export function writeCachedModels(params: {
 export function clearCachedModels(params: {
   preset: ProviderPreset
   baseUrl: string
+  oauthProfileId?: string
   filePath?: string
 }): boolean {
   const filePath = params.filePath ?? getModelsCachePath()
   const file = readCacheFile(filePath)
-  const key = cacheKey(params.preset, params.baseUrl)
-  if (!(key in file)) return false
-  delete file[key]
+  const keys =
+    params.preset === 'codex'
+      ? Object.keys(file).filter(
+          (key) =>
+            params.oauthProfileId &&
+            key.startsWith(codexCachePrefix(params.oauthProfileId)),
+        )
+      : [cacheKey(params.preset, params.baseUrl)].filter((key) => key in file)
+  if (keys.length === 0) return false
+  for (const key of keys) delete file[key]
   writeCacheFile(filePath, file)
   return true
 }
@@ -174,8 +185,12 @@ export function clearAllCachedModels(filePath?: string): void {
   writeCacheFile(resolved, {})
 }
 
-export function isCacheFresh(entry: CacheEntry, now: number = Date.now()): boolean {
-  return now - entry.fetchedAt < CACHE_TTL_MS
+export function isCacheFresh(
+  entry: CacheEntry,
+  now: number = Date.now(),
+  ttl = CACHE_TTL_MS,
+): boolean {
+  return now >= entry.fetchedAt && now - entry.fetchedAt < ttl
 }
 
 // ── live probe ───────────────────────────────────────────────────────────
@@ -213,16 +228,128 @@ export async function fetchModelsFromEndpoint(params: {
 
 // ── orchestrator ─────────────────────────────────────────────────────────
 
+async function fetchCodexModels(
+  accessToken: string,
+  fetchFn: typeof fetch,
+): Promise<string[]> {
+  const accountId = extractChatGptAccountId(accessToken)
+  const response = await fetchFn(
+    `${CHATGPT_BACKEND_BASE_URL}/codex/models?client_version=${CODEX_CLIENT_VERSION}`,
+    {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        Accept: 'application/json',
+        originator: 'codex_cli_rs',
+        'User-Agent': `codex_cli_rs/${CODEX_CLIENT_VERSION}`,
+        ...(accountId ? { 'ChatGPT-Account-ID': accountId } : {}),
+      },
+      signal: AbortSignal.timeout(5_000),
+      redirect: 'error',
+    },
+  )
+  if (!response.ok)
+    throw new Error(`Codex model lookup failed (${response.status})`)
+  const body = (await response.json()) as { models?: unknown } | null
+  if (!body || !Array.isArray(body.models))
+    throw new Error('Invalid Codex model catalog')
+  const entries: { slug: string; priority: number }[] = []
+  for (const model of body.models) {
+    if (
+      !model ||
+      typeof model !== 'object' ||
+      model.visibility !== 'list' ||
+      typeof model.slug !== 'string' ||
+      !/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(model.slug)
+    )
+      continue
+    // supported_in_api is for API-key clients; subscription-only models stay visible.
+    entries.push({
+      slug: model.slug,
+      priority:
+        typeof model.priority === 'number' && Number.isFinite(model.priority)
+          ? model.priority
+          : Number.MAX_SAFE_INTEGER,
+    })
+  }
+  const models = [
+    ...new Set(
+      entries
+        .sort((a, b) => a.priority - b.priority)
+        .map((entry) => entry.slug),
+    ),
+  ]
+  if (!models.length)
+    throw new Error('Codex catalog contains no visible models')
+  return models
+}
+
 export async function getModelsForPreset(params: {
   preset: ProviderPreset
   baseUrl: string
   apiKey: string
+  oauthProfileId?: string
+  getCodexCredentials?: typeof getValidCodexCredentials
   forceRefresh?: boolean
   filePath?: string
   fetchImpl?: typeof globalThis.fetch
   now?: number
 }): Promise<ModelLookupResult> {
-  const { preset, baseUrl, apiKey, forceRefresh, filePath, fetchImpl, now } = params
+  const { preset, baseUrl, apiKey, forceRefresh, filePath, fetchImpl, now } =
+    params
+
+  if (preset === 'codex') {
+    let cached: CacheEntry | undefined
+    let authenticated = false
+    try {
+      const credentials = params.oauthProfileId
+        ? await (params.getCodexCredentials ?? getValidCodexCredentials)(
+            params.oauthProfileId,
+          )
+        : null
+      if (!credentials) throw new Error('Codex sign-in required')
+      authenticated = true
+      // Hashing the token isolates replacement accounts and rotations without storing secrets.
+      const key = `${codexCachePrefix(params.oauthProfileId!)}${CODEX_CLIENT_VERSION}:${createHash(
+        'sha256',
+      )
+        .update(credentials.accessToken)
+        .digest('hex')}`
+      const cachePath = filePath ?? getModelsCachePath()
+      cached = readCacheFile(cachePath)[key]
+      if (
+        !forceRefresh &&
+        cached &&
+        isCacheFresh(cached, now, CODEX_CACHE_TTL_MS)
+      ) {
+        return { source: 'cache', models: cached.models }
+      }
+      const models = await fetchCodexModels(
+        credentials.accessToken,
+        fetchImpl ?? globalThis.fetch,
+      )
+      try {
+        const file = readCacheFile(cachePath)
+        // Retain only this profile's current identity/version, preserving other profiles.
+        for (const oldKey of Object.keys(file)) {
+          if (oldKey.startsWith(codexCachePrefix(params.oauthProfileId!)))
+            delete file[oldKey]
+        }
+        file[key] = { fetchedAt: now ?? Date.now(), models }
+        writeCacheFile(cachePath, file)
+      } catch {
+        // A read-only cache directory must not discard a successful live catalog.
+      }
+      return { source: 'probe', models }
+    } catch {
+      return {
+        source: cached?.models.length ? 'stale-cache' : 'catalog',
+        models: cached?.models.length ? cached.models : MODEL_CATALOG.codex,
+        warning: authenticated
+          ? 'Could not refresh Codex models. Showing an offline fallback; check your connection or sign-in.'
+          : 'Codex sign-in is missing or expired. Showing bundled models; reconnect with /providers:add codex.',
+      }
+    }
+  }
 
   // Catalog wins when populated — avoids unnecessary network even if user has a key.
   const catalog = MODEL_CATALOG[preset]

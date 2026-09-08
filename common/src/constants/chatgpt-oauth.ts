@@ -12,7 +12,8 @@ export const CHATGPT_OAUTH_ENABLED = true
 export const CHATGPT_OAUTH_CLIENT_ID = 'app_EMoamEEZ73f0CkXaXp7hrann'
 
 /** OAuth endpoints */
-export const CHATGPT_OAUTH_AUTHORIZE_URL = 'https://auth.openai.com/oauth/authorize'
+export const CHATGPT_OAUTH_AUTHORIZE_URL =
+  'https://auth.openai.com/oauth/authorize'
 export const CHATGPT_OAUTH_TOKEN_URL = 'https://auth.openai.com/oauth/token'
 
 /** Pinned redirect URI for paste-based localhost callback flow. */
@@ -20,6 +21,9 @@ export const CHATGPT_OAUTH_REDIRECT_URI = 'http://localhost:1455/auth/callback'
 
 /** Base URL for ChatGPT backend API (Codex endpoint). */
 export const CHATGPT_BACKEND_BASE_URL = 'https://chatgpt.com/backend-api'
+
+/** Verified Codex protocol compatibility; the catalog gates models by this version. */
+export const CODEX_CLIENT_VERSION = '0.153.4'
 
 /** Environment variable for OAuth token override. */
 export const CHATGPT_OAUTH_TOKEN_ENV_VAR = 'CODEBUFF_CHATGPT_OAUTH_TOKEN'
@@ -29,7 +33,13 @@ export const CHATGPT_OAUTH_TOKEN_ENV_VAR = 'CODEBUFF_CHATGPT_OAUTH_TOKEN'
  * This includes optimistic aliases requested by the user.
  */
 export const OPENROUTER_TO_OPENAI_MODEL_MAP: Record<string, string> = {
-  // GPT-5.5 — latest, strongest reasoning (top of picker)
+  // Bundled fallback and legacy OAuth aliases. Live account discovery is authoritative.
+  'openai/gpt-6-astra': 'gpt-6-astra',
+  'openai/gpt-5.6-sol': 'gpt-5.6-sol',
+  'openai/gpt-5.6-terra': 'gpt-5.6-terra',
+  'openai/gpt-5.6-luna': 'gpt-5.6-luna',
+
+  // GPT-5.5
   'openai/gpt-5.5': 'gpt-5.5',
 
   // GPT-5.4 family
@@ -107,5 +117,7 @@ export function toOpenAIModelId(model: string): string {
     return mapped
   }
 
-  throw new Error(`Model is not supported for ChatGPT OAuth direct routing: ${model}`)
+  throw new Error(
+    `Model is not supported for ChatGPT OAuth direct routing: ${model}`,
+  )
 }

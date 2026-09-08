@@ -15,9 +15,9 @@ Removing a codex profile via `/providers:remove` calls `clearCodexCredentials(pr
 
 If a future migration wants multi-profile-shared OAuth, the `oauthProfileId` field is the seam: it defaults to `profile.id` at add-time but is stored explicitly so two profiles could point at the same credentials key. Today nothing exercises that fork.
 
-## Codex `/model` ships a fixed catalog
+## Codex discovery needs the Codex endpoint and a supported client version
 
-`/model` on a codex profile lists `Object.keys(OPENROUTER_TO_OPENAI_MODEL_MAP)` straight from the catalog — no network probe. The OAuth bearer cannot list models against `chatgpt.com/backend-api/models` (no such route is exposed to that token); Codex CLI itself ships a fixed catalog baked into the binary for the same reason. If you add an id to `OPENROUTER_TO_OPENAI_MODEL_MAP` in `common/src/constants/chatgpt-oauth.ts`, it automatically appears in `/model` listings — no second edit needed. 1.0.0 reverted the 0.2.1 live-probe attempt after the endpoint was confirmed dead.
+The old fixed-catalog policy is superseded by the September 2026 discovery fix. `/backend-api/models` was the wrong endpoint; `/backend-api/codex/models?client_version=...` works with OAuth bearer credentials. The catalog is account-specific and version-gated: Astra appears at verified client version `0.153.4` but not `0.152.0`. Follow the [Codex merge rules](../MERGE-STRATEGY.md#conflict-map) before changing discovery, caching or routing. The static map is only a legacy allowlist/offline fallback. A missing model can mean account access or client compatibility, so a cached list must not be presented as a fresh entitlement check.
 
 ## `opencode` and `opencode-go` model catalogs are asymmetric
 
