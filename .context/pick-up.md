@@ -7,11 +7,11 @@ updated: 2026-09-09
 
 **Start: read .context/overview.md + .context/active-work.md.**
 
-**Grok for 1.4.1 is implemented, reviewed and committed locally** at bc2fd502c on modded. /providers:add grok [name] connects a subscription through device OAuth. Refresh, model discovery, bindings, streaming/tool calls and structured/non-streaming requests are covered. 117 targeted tests and all three package typechecks pass; independent review has no open findings.
+**v1.4.1 is shipped.** Source is pushed on modded, tag v1.4.1 points to e049416ae, and GitHub has all three verified archives plus SHA256SUMS. npm registry-direct latest is 1.4.1. The installed cbm reports 1.4.1 and its executable hash matches the verified build. 117 targeted tests and all three package typechecks pass; independent review has no open findings.
 
-**Next task: live Grok acceptance, then ship 1.4.1 with user authorization.** The local Windows executable is cli/bin/codebuff-mod.exe; run /providers:add grok, approve the displayed xAI link, then /model, /providers:test, and a short tool-using task. Only the public device-code request has been verified live; authenticated subscription inference has not.
+**Next task: none required for the release.** To use Grok, run cbm and /providers:add grok [name], approve the xAI link, then /model and /providers:test. A live tool-using task remains useful acceptance testing: only the public device-code request has been verified live, not authenticated Grok inference. The user explicitly authorized publication without that step.
 
-All three archives and SHA256SUMS are prepared in **cli/dist-binaries/1.4.1/**; root-level archives are still 1.4.0. Extracted Windows startup reports 1.4.1; Linux architecture/contents are checked, not runtime execution. npm dry run passes. Follow MERGE-STRATEGY.md Step 6; GitHub assets precede npm publishing, which requires native 2FA. No 1.4.1 push, tag, publish or installed-version update has run. npm latest remains 1.4.0.
+Local release files are in **cli/dist-binaries/1.4.1/**; root-level archives remain 1.4.0. Linux architecture and contents are checked, not runtime execution. Future publication follows MERGE-STRATEGY.md Step 6: GitHub assets before npm. npm required an interactive TTY and the user's browser 2FA approval. A partial local tar dependency was repaired from its integrity-verified registry archive before the installed CLI passed.
 
 Landmines: preserve provider selection and existing Codex credentials; this session acquired no Grok tokens. Trust-bundle and cross-build paths are in active-work.md. Broad Windows baseline failures remain documented. .codeboarding/ is the user's and stays untracked.
 
