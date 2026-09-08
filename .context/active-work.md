@@ -12,7 +12,7 @@ _Release commit: `f82f41947`, tag `v1.4.0`; source integrated and pushed on `mod
 
 ## Current focus
 
-Upstream sync and automatic Codex model discovery are implemented, reviewed and installed locally. GitHub release 1.4.0 is public with all three platform archives. npm publishing awaits renewed authentication; registry `latest` remains 1.3.2.
+Upstream sync and automatic Codex model discovery are implemented, reviewed and installed locally. GitHub release 1.4.0 is public with all three platform archives. npm publishing awaits the registry publishing-authentication requirement; registry `latest` remains 1.3.2.
 
 ## State
 
@@ -20,12 +20,12 @@ Upstream sync and automatic Codex model discovery are implemented, reviewed and 
 - **Done:** live Codex catalog, profile/credential/version-isolated five-minute cache, bounded refresh and catalog requests, labeled offline fallback, and future bare model IDs. Actual Astra discovery and a tool call followed by visible `CODEX_OAUTH_OK` succeeded using the existing native Codex login.
 - **Done:** independent review closed all three findings: legacy OAuth credential preservation, BYOK suppression of sponsored polling, and bounded OAuth refresh. Review artifact lives in this Traycer epic under `artifacts/upstream-integration-review/index.md`.
 - **Done:** Windows, Linux x64 and Linux arm64 archives built; each includes executable + `tree-sitter.wasm`. GitHub asset SHA-256 digests match the local archives. Packaged Windows startup and installed `cbm --version` both report 1.4.0. Linux archives were checked for architecture and contents but not executed on Linux.
-- **Blocked:** npm `whoami` returns HTTP 401. npm publish dry-run passed (five launcher files, 9.4 kB); a subsequent publish attempt was rejected with E404 while whoami still returned 401. npm 1.4.0 is not published. No browser is connected to the agent runtime, so interactive sign-in needs the user.
+- **Blocked:** npm login now succeeds for the publisher. The subsequent publish is rejected with E403 requiring publishing 2FA (or an explicitly authorized compatible publishing token). npm 1.4.0 is not published; dry-run passed and GitHub assets already exist. Use the standard interactive 2FA flow; do not weaken account/package security automatically.
 - **Authentication:** all three saved Codebuff Codex profiles return 401 on refresh. They were not overwritten with the native Codex account's tokens. Reconnect the desired account using `/providers:add codex`. The active `opencode-go` provider is unchanged.
 
 ## Pick up here
 
-1. Complete npm sign-in, verify ownership (`npm whoami`; expected historical publisher `tsd47216`), then run `npm publish` from `cli/release` per [MERGE-STRATEGY](../MERGE-STRATEGY.md). GitHub release/tag/assets already exist; do not recreate them or overwrite the tag.
+1. Complete the required npm publishing authentication, verify ownership (`npm whoami`), then run `npm publish` from `cli/release` per [MERGE-STRATEGY](../MERGE-STRATEGY.md). GitHub release/tag/assets already exist; do not recreate them or overwrite the tag.
 2. Verify registry-direct `codebuff-mod/latest` is 1.4.0, then update this handoff and [[overview]].
 3. For Codex use, run `cbm`, `/providers:add codex`, complete browser OAuth, then `/model`. Newly discovered account models use bare IDs such as `gpt-6-astra`.
 
