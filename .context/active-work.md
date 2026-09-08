@@ -1,47 +1,41 @@
 ---
 type: active-work
-project: codebuff (fork ? modded branch)
-updated: 2026-09-08
-tags: [context, active-work, byok, codex]
+project: codebuff (fork — modded branch)
+updated: 2026-09-09
+tags: [context, active-work, byok, grok]
 ---
 
 # Active Work
 
-_Last updated: 2026-09-08 by GPT-6 Astra (auto)_
-_Release commit: `f82f41947`, tag `v1.4.0`; source integrated and pushed on `modded`._
+_Last updated: 2026-09-09 by Codex (auto)_
+_Implementation commit: bc2fd502c on modded._
 
 ## Current focus
 
-**v1.4.0 shipped on 2026-09-08.** Upstream sync and automatic Codex discovery are complete. npm registry-direct `latest` is 1.4.0, GitHub has all three verified archives, and a fresh installation from npm runs 1.4.0 and matches the verified Windows binary hash.
+**Grok subscription support for 1.4.1 is implemented and locally packaged.** It is committed but not pushed, tagged or published. npm registry-direct latest was verified as 1.4.0 during this session.
 
 ## State
 
-- **Done:** synced upstream snapshot `ab19b7582`, preserving BYOK behavior, fork launcher and agent templates. `main` is `88c4df13a`, a history-preserving bridge with exactly the upstream tree; `modded` includes the new upstream history. Neither branch was force-pushed.
-- **Done:** live Codex catalog, profile/credential/version-isolated five-minute cache, bounded refresh and catalog requests, labeled offline fallback, and future bare model IDs. Actual Astra discovery and a tool call followed by visible `CODEX_OAUTH_OK` succeeded using the existing native Codex login.
-- **Done:** independent review closed all three findings: legacy OAuth credential preservation, BYOK suppression of sponsored polling, and bounded OAuth refresh. Review artifact lives in this Traycer epic under `artifacts/upstream-integration-review/index.md`.
-- **Done:** Windows, Linux x64 and Linux arm64 archives built; each includes executable + `tree-sitter.wasm`. GitHub asset SHA-256 digests match the local archives. Packaged Windows startup and installed `cbm --version` both report 1.4.0. Linux archives were checked for architecture and contents but not executed on Linux.
-- **Blocked:** none for implementation or release. npm publishing completed after interactive login and publishing 2FA approval.
-- **Authentication:** at validation, three saved Codebuff Codex profiles returned 401 on refresh. They were not overwritten with the native Codex account's tokens. Reconnect the desired account using `/providers:add codex`. The active `opencode-go` provider is unchanged.
+- **Done:** /providers:add grok [name], device authorization, separate per-profile credentials, automatic refresh, subscription Responses routing, account-scoped model discovery and cache, provider removal and agent bindings. User documentation is in cli/release/README.md.
+- **Done:** 117 targeted tests pass (82 CLI, 35 SDK), including Codex discovery and reasoning replay regressions. Common, SDK and CLI typechecks pass.
+- **Done:** independent review found four issues, all fixed and reverified: non-streaming runtime calls, structured-output schemas, incomplete-stream status/usage, and credential-cleanup failure. Review is in the Traycer epic at artifacts/grok-1-4-1-review/index.md.
+- **Done:** Windows x64, Linux x64 and Linux arm64 archives are in cli/dist-binaries/1.4.1/, with SHA256SUMS. All include the executable and tree-sitter.wasm. Archive contents and executable formats pass; the extracted Windows executable reports 1.4.1. Linux binaries were not executed.
+- **Done:** npm pack dry run reports codebuff-mod@1.4.1, five files, 9,962 packed bytes.
+- **Live verification:** xAI accepted the real device-code request and returned https://accounts.x.ai/oauth2/device, 1,800-second expiry and 5-second polling. No user authorization was completed, and no live access/refresh tokens or authenticated inference were tested.
 
 ## Pick up here
 
-No active code or release work. For live Codex use, reconnect the desired expired profile using `cbm` ? `/providers:add codex`, complete browser OAuth, then `/model`. Discovery shows account-visible bare IDs such as `gpt-6-astra`; no account credentials were imported from native Codex. The existing active provider was preserved.
+**Next task: live Grok acceptance and ship 1.4.1 when the user authorizes it.** Launch cli/bin/codebuff-mod.exe, run /providers:add grok, complete the displayed browser approval, then /model, /providers:test, and a short coding task exercising a tool call. This will activate the new Grok profile; record and restore the prior active provider if requested. Existing active provider selection was preserved during implementation.
 
-## Verification and limits
+Use [MERGE-STRATEGY.md](../MERGE-STRATEGY.md), Step 6, for publication. The three prepared archives are in the **versioned subdirectory** cli/dist-binaries/1.4.1/; root-level archives remain 1.4.0. GitHub assets must exist before npm publication. Future npm publication requires the account's native publishing 2FA approval. Push, tag, publish and installed-version updates have not run for 1.4.1.
 
-- Common, SDK and CLI typechecks pass. Targeted checks include provider/store/discovery tests, credential preservation and ad suppression, real SDK 7 OAuth reasoning replay, Anthropic image compatibility, and Context7/read_docs (15 tests).
-- Broad Windows suites are NOT fully green. Common: 1616 pass / 25 fail; the same 25 failure names reproduce in upstream (1612 pass). SDK: 517 pass / 92 fail / 15 skip; upstream has 469 pass / 93 fail / 15 skip, with no fork-only failure names.
-- Last broad CLI run: 3190 pass / 32 fail / 26 skip, with no loader errors after repairing the missing public-snapshot test helper. One contradictory upstream OAuth-deletion expectation was subsequently corrected; the full credential-storage file passes 21/21. Other failures include Windows paths, unavailable sandbox containment, and upstream expectations conflicting with intentional fork behavior. Targeted feature checks are green.
-- Baseline worktree: `C:/Users/S.D/.traycer/worktrees/estarinazx__codebuff-modded/verify-upstream-2026-09-08`. Only test harness/Windows fixture adapters were applied there; production source stays upstream. Preserve it if comparing failures; cleanup is separate.
+## Recent context and limits
 
-## Recent context
-
-- The launcher fetches npm's published version. Installing the unpublished 1.4.0 wrapper initially downloaded 1.3.2. The verified 1.4.0 executable/WASM and version metadata were installed in the cache while publication was pending. After publication, a fresh `npm install -g codebuff-mod@1.4.0` downloaded the correct GitHub archive and again returned 1.4.0; its binary hash matches the verified build. Rollback copies have suffix `.before-1.4.0-001531c455ce4ae2a4c95915c63aa521` in `~/.config/manicode`.
-- npm identity alone did not satisfy publishing policy. Login, account 2FA setup and approval of the exact active publish URL completed the release. Preserve account security; use native interactive approval for future releases.
-- Package requests on this machine needed `NODE_EXTRA_CA_CERTS=C:/Users/S.D/AppData/Local/Temp/codebuff-windows-trust.pem`, exported from existing Windows trust roots. TLS verification and permanent settings were preserved.
-- Linux cross-builds used the existing `BUN_COMPILE_EXECUTABLE_PATH` override with integrity-verified Bun 1.3.14 runtimes; a spaceless junction alone was insufficient. See the release runbook.
-- Automatic discovery remains protocol-version gated. Current verified compatibility is 0.153.4; new model names require no catalog edit, but newer protocol requirements may require a compatibility update.
-- User-owned `.codeboarding/` remains untracked and untouched.
+- Protocol reference: stnly/pi-grok revision 8b304e65c088f84ccb932959d97739245fe47d97, cloned to C:/Users/S.D/AppData/Local/Temp/codebuff-pi-grok-c4ac5b159a9d4525a90cbf2bddc98eac. It was inspected, not installed. See [[2026-09-09-grok-subscription]] for scope and identity-token decisions.
+- The machine's Bun TLS probe needed the existing trust bundle via process-local NODE_EXTRA_CA_CERTS=C:/Users/S.D/AppData/Local/Temp/codebuff-windows-trust.pem. TLS verification and permanent settings were preserved. Linux cross-builds reused verified Bun 1.3.14 executables under C:/Users/S.D/AppData/Local/Temp/cbm-runtimes-1.3.14/{x64,aarch64}/package/bin/bun through BUN_COMPILE_EXECUTABLE_PATH.
+- Broad Windows suites retain the previous baseline failures; they were not rerun for this provider change. Previous common: 1616 pass / 25 fail, SDK: 517 pass / 92 fail / 15 skip, CLI: 3190 pass / 32 fail / 26 skip. Targeted changes and regressions above pass.
+- Saved Codebuff Codex profiles had expired at the 1.4.0 verification. They remain separate and were not overwritten. Reconnect with /providers:add codex when needed. Codex protocol compatibility remains 0.153.4.
+- .codeboarding/ is user-owned and remains untracked. Preserve the existing upstream-baseline worktree if comparing platform failures. The upstream history bridge and fork launcher rules remain in the release runbook.
 
 ## Related
 
@@ -49,3 +43,4 @@ No active code or release work. For live Codex use, reconnect the desired expire
 - [[stack]]
 - [[decisions]]
 - [[gotchas]]
+- [[pick-up]]

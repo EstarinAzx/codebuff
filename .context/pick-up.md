@@ -1,17 +1,19 @@
 ---
 type: handoff
-updated: 2026-09-08
+updated: 2026-09-09
 ---
 
 # Pick up
 
-**Start: read `.context/overview.md` + `.context/active-work.md`.**
+**Start: read .context/overview.md + .context/active-work.md.**
 
-**v1.4.0 is shipped.** Upstream snapshot `ab19b7582` is merged and pushed on `modded`; npm registry-direct `latest` is 1.4.0. GitHub has the tag and all three verified platform archives, including `tree-sitter.wasm`. Fresh installation from npm runs `cbm` 1.4.0 and matches the verified Windows binary hash. Independent review has no remaining actionable findings.
+**Grok for 1.4.1 is implemented, reviewed and committed locally** at bc2fd502c on modded. /providers:add grok [name] connects a subscription through device OAuth. Refresh, model discovery, bindings, streaming/tool calls and structured/non-streaming requests are covered. 117 targeted tests and all three package typechecks pass; independent review has no open findings.
 
-**Next task: none required.** To use Codex, reconnect the desired expired Codebuff OAuth profile with `/providers:add codex`, then run `/model`. Astra and future compatible account-visible models are discovered automatically. Native Codex credentials were used only in memory for live catalog and tool-call validation; existing provider selection was preserved.
+**Next task: live Grok acceptance, then ship 1.4.1 with user authorization.** The local Windows executable is cli/bin/codebuff-mod.exe; run /providers:add grok, approve the displayed xAI link, then /model, /providers:test, and a short tool-using task. Only the public device-code request has been verified live; authenticated subscription inference has not.
 
-Landmines: upstream rewrote history, so `main` mirrors content via an append-only bridge rather than identical commit IDs. Codex protocol compatibility is 0.153.4; discovery and credential refresh are bounded and caches are profile-scoped. Broad Windows test suites retain documented baseline failures. Future npm releases need publishing 2FA approval. `.codeboarding/` is the user's and stays untracked.
+All three archives and SHA256SUMS are prepared in **cli/dist-binaries/1.4.1/**; root-level archives are still 1.4.0. Extracted Windows startup reports 1.4.1; Linux architecture/contents are checked, not runtime execution. npm dry run passes. Follow MERGE-STRATEGY.md Step 6; GitHub assets precede npm publishing, which requires native 2FA. No 1.4.1 push, tag, publish or installed-version update has run. npm latest remains 1.4.0.
+
+Landmines: preserve provider selection and existing Codex credentials; this session acquired no Grok tokens. Trust-bundle and cross-build paths are in active-work.md. Broad Windows baseline failures remain documented. .codeboarding/ is the user's and stays untracked.
 
 ## Related
 

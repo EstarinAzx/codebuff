@@ -1,11 +1,13 @@
 ---
 type: decisions
 project: codebuff (fork — modded branch)
-updated: 2026-09-08
+updated: 2026-09-09
 tags: [decisions, modded]
 ---
 
 # Decisions — fork-local
+
+- [[2026-09-09-grok-subscription]] — Grok means subscription OAuth; keep identity claims and account settings outside this integration.
 
 Upstream architectural decisions live in upstream `docs/` and (if added later) `docs/adr/`. This file tracks only the decisions made for fork-local work on the `modded` branch.
 

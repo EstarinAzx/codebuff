@@ -1,7 +1,7 @@
 ---
 type: overview
 project: codebuff (fork — modded branch)
-updated: 2026-09-08
+updated: 2026-09-09
 tags: [moc, codebuff, llm-proxy, byok]
 ---
 
@@ -9,7 +9,7 @@ tags: [moc, codebuff, llm-proxy, byok]
 
 Upstream Codebuff is a composable coding-agent monorepo where a hosted backend proxies LLM requests to upstream providers and bills users in credits via BigQuery + Stripe. CLI is a TUI built on OpenTUI + React. Also ships `freebuff`, the free tier.
 
-**This fork is standalone BYOK** on `modded`, distributed as `codebuff-mod`. **v1.4.0 is shipped as of 2026-09-08** on npm and GitHub, and the local installation is verified. The fork includes upstream snapshot `ab19b7582` and automatic, account-scoped Codex model discovery. Users run `cbm`, add a provider with `/providers:add <preset> <apiKey>` or `/providers:add codex` for OAuth, and select models with `/model`. No codebuff.com account or billing backend is required. See [[active-work]] for verification results and any account reconnection needed for live Codex use.
+**This fork is standalone BYOK** on `modded`, distributed as `codebuff-mod`. **v1.4.0 remains published; v1.4.1 Grok support is implemented and packaged locally as of 2026-09-09.** The fork includes upstream snapshot `ab19b7582`, account-scoped Codex discovery, and Grok subscription OAuth. Users run `cbm`, add an API-key provider with `/providers:add <preset> <apiKey>`, or use `/providers:add codex` or `/providers:add grok` for subscription OAuth, then select models with `/model`. No codebuff.com account or billing backend is required. See [[active-work]] for verification, live Grok acceptance and release status.
 
 **As of v1.1.0 the fork is BYOK-only with no in-repo backend.** The 2026-06-11 strategy-B sync rode upstream's pivot to a CLI/SDK-only public snapshot and dropped `web/` + `packages/{internal,billing,bigquery,build-tools}`. SDK Path B (`CODEBUFF_USE_BACKEND=1` in `sdk/src/impl/database.ts`) still exists for external SDK consumers but now targets a *remote* codebuff.com — the fork no longer hosts the backend. See [[decisions]] "Ride upstream's snapshot deletion to a BYOK-only fork (strategy B)" and [MERGE-STRATEGY.md](../MERGE-STRATEGY.md) (rewritten for the lean tree).
 

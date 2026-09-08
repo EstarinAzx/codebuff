@@ -1,7 +1,7 @@
 ---
 type: stack
 project: codebuff (fork — modded branch)
-updated: 2026-09-08
+updated: 2026-09-09
 tags: [stack, tooling, byok]
 ---
 
@@ -24,10 +24,10 @@ tags: [stack, tooling, byok]
 
 The fork is **BYOK-only** — no codebuff.com backend in-repo. The only network calls are the user's own keys against their endpoints:
 
-- User's own provider key against any preset in `cli/src/utils/providers.ts` — openai, anthropic, openrouter, opencode, opencode-go, deepseek, gemini, mistral, together, groq, custom-openai
+- User's own provider keys, or subscription OAuth through the `codex` and `grok` presets in `cli/src/utils/providers.ts`. Grok uses xAI device authorization and the subscription CLI proxy; Codex uses the ChatGPT backend.
 - Direct HTTP via SDK Path C (`sdk/src/impl/fork-impls/byok-resolver.ts createDirectProviderModel`) — no codebuff.com hop
 - **Web tools (since the web_search rewire):** `web_search` → serper.dev / brave / tavily direct (env keys `SERPER_API_KEY` / `BRAVE_API_KEY` / `TAVILY_API_KEY`, primary via `CBM_SEARCH_PROVIDER`, fallback chain); `read_docs` → context7.com direct (keyless; optional `CONTEXT7_API_KEY`). No key → `web_search` un-advertised via template gate.
-- No central billing, analytics, or auth — `~/.config/manicode/providers.json` (chmod 0600) is the only state
+- No central billing, analytics, or auth. Local profiles are in `~/.config/manicode/providers.json`; OAuth tokens are separate per-profile stores in `codex-oauth.json` and `grok-oauth.json` (0600 on POSIX).
 
 SDK Path B (`CODEBUFF_USE_BACKEND=1`, in `sdk/src/impl/database.ts`) still exists for external SDK consumers but targets a *remote* codebuff.com — the fork no longer hosts Stripe/BigQuery/PostHog/auth. Those services are upstream's, not in this tree.
 
@@ -59,8 +59,9 @@ Shared surface (survives in the lean tree):
 
 BYOK fork additions (`modded` branch):
 
-- Profile store — `cli/src/utils/providers.ts` (CRUD against `~/.config/manicode/providers.json`, schema v3 with `oauthProfileId`, 0600). Holds profiles **and** `agentBindings: Record<agentId, profileId>` for per-agent routing.
-- Model catalog/probe — `cli/src/utils/providers-models.ts` (generic catalogs/probes plus account-scoped Codex `/codex/models` discovery; 24h generic cache and 5-minute Codex cache at `~/.config/manicode/models-cache.json`)
+- Profile store — `cli/src/utils/providers.ts` (CRUD against `~/.config/manicode/providers.json`, schema v2 with `oauthProfileId`, 0600). Holds profiles **and** `agentBindings: Record<agentId, profileId>` for per-agent routing.
+- Grok OAuth — `sdk/src/grok-oauth.ts` (device flow, bounded token/catalog calls, per-profile storage and refresh). `CODEBUFF_GROK_CREDENTIALS_PATH` optionally overrides its local credential file. `sdk/src/impl/fork-impls/grok-model.ts` handles subscription Responses; protocol constants are in `common/src/constants/grok.ts`.
+- Model catalog/probe — `cli/src/utils/providers-models.ts` (generic probes plus account-scoped Codex and Grok discovery; 24h generic cache and 5-minute OAuth cache at `~/.config/manicode/models-cache.json`)
 - Slash commands — `cli/src/commands/providers.ts` (`/providers*` + `/model`) registered in `cli/src/commands/command-registry.ts`. Includes `/providers:bind`, `/providers:unbind`, `/providers:bindings` as of 0.1.5.
 - SDK Path C — `sdk/src/impl/model-provider.ts` (one-line hook dispatch since 1.0.3). State exports: `BYOKProfile`, `setActiveByokProfile`, `setByokAgentBindings`. Resolution logic moved to fork-impls (see below).
 - Backend skip gate — `sdk/src/impl/database.ts` (one-line hook dispatch since 1.0.3). Logic in `sdk/src/impl/fork-impls/backend-skip.ts`.
@@ -81,7 +82,7 @@ Hook registry + fork-impls (added 1.0.3 shim refactor):
   - `packages/agent-runtime/src/llm-api/fork-impls/search-providers.ts` — serper/brave/tavily clients + fallback chain.
 - CLI impls:
   - `cli/scripts/fork-impls/scan-mod-agents.ts` — `.agents/mod-*` bundle scan.
-  - `cli/src/fork-impls/preset-add-handlers.ts` — codex async `/providers:add` handler.
+  - `cli/src/fork-impls/preset-add-handlers.ts` — Codex and Grok async `/providers:add` dispatch.
 - ~~Web impl~~ — `web/src/fork-impls/provider-dispatch.ts` (opencode-go backend override) was deleted in the strategy-B sync. opencode-go now dispatches via BYOK Path C only.
 
 ## Related
