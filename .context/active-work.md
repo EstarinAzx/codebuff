@@ -1,152 +1,48 @@
 ---
 type: active-work
-project: codebuff (fork — modded branch)
-updated: 2026-07-03
-tags: [context, active-work]
-ship: 1.3.2 (SHIPPED 2026-07-04 — Codex visible-summary fix; npm latest + GH release live)
-focus: nothing in flight — 1.3.2 shipped (prompt-only fix, not yet live-confirmed on Codex)
+project: codebuff (fork ? modded branch)
+updated: 2026-09-08
+tags: [context, active-work, byok, codex]
 ---
 
 # Active Work
 
-_Last updated: 2026-07-03 by Fable 5 (auto)_
-_At commit: `51ff4872e` (1.3.0 bump) + post-ship docs commit on `modded`._
+_Last updated: 2026-09-08 by GPT-6 Astra (auto)_
+_Release commit: `f82f41947`, tag `v1.4.0`; source integrated and pushed on `modded`._
 
 ## Current focus
 
-**v1.3.2 SHIPPED 2026-07-04 — Codex OAuth "no final response" fix (template).**
-1.3.1's reasoning round-trip did NOT fix the reported symptom (verified: user
-ran 1.3.1, bug persisted — logs showed agent `mod-max`, clean loop end, no
-error, no final text). Real cause found: the `mod-max`/`mod-default`
-`instructionsPrompt` "Todo closure" block said *"the summary IS the work for
-the summarize todo — mark it complete in the same `write_todos` call"*, which a
-reasoning model (Codex) reads literally as check-the-box-and-exit, skipping the
-visible summary prose (its internal reasoning isn't shown). Non-reasoning models
-wrote prose anyway → Codex-only. Fix (`fb9dcf0a4`): both templates now require
-the written summary as a visible message BEFORE `end_turn`, decoupled from the
-checkbox, with an explicit "reasoning isn't shown" note. Bump `60ecd2617`, tag
-`v1.3.2`. Shipped MERGE-STRATEGY §Step 6 (3 tarballs @1.3.2 → GH release → npm
-`codebuff-mod@1.3.2` = `latest`, verified via registry direct).
-**Caveat: prompt-only, best-effort, NOT live-confirmed** — user chose ship over
-source smoke. If it recurs, escalate to a structural agent-runtime guard
-(detect an empty final top-level turn) — bigger, merge-riskier.
-
----
-
-**v1.3.1 SHIPPED 2026-07-03 — Codex OAuth reasoning round-trip fix.** After
-1.3.0, a user reported Codex/ChatGPT **OAuth** models running tools (todos)
-then returning no final response. Root cause: `chatgpt-backend-fetch.ts`
-requested encrypted reasoning (`include: ['reasoning.encrypted_content']`,
-`store:false`) and streamed it back, but never replayed it — `convertMessages`
-had no reasoning branch, so Codex lost chain-of-thought across the tool loop
-and sometimes emitted an empty final turn. Fix caches each turn's reasoning
-item by `call_id` (from the completed response `output`) and re-injects it
-before its `function_call` on the next request. Commit `a1242f470` (via PR #1),
-bump `0be8c24f0`, tag `v1.3.1`. Shipped the standard manual way
-(MERGE-STRATEGY §Step 6): 3 tarballs rebuilt @1.3.1, GH release, npm
-`codebuff-mod@1.3.1` = `latest` (verified). Smoke-tested from source pre-ship
-(multi-step tool loop now answers every run). New test
-`sdk/src/impl/__tests__/chatgpt-backend-reasoning.test.ts`.
-
----
-
-**Upstream sync 2026-07-03 → v1.3.0 SHIPPED same day.** `modded` synced
-399 snapshot commits (`upstream/main` @ `a8a8d1643`) per
-[MERGE-STRATEGY.md](../MERGE-STRATEGY.md), then released:
-
-- Merge `595adc673` — 5 conflicts resolved per map (fork launcher kept
-  wholesale — see [[decisions]] 2026-07-03; `codebuff-mod` name/version
-  kept; unions elsewhere).
-- `9441009e6` — `WEBSITE_URL` → `getWebsiteUrl()` compile fix (upstream
-  rename hit the fork's BYOK fail-fast block).
-- `291d2b9e7` — win32 infinite-loop fix in upstream's new
-  `project-file-tree.test.ts` helper.
-- `beb66a5c5` — context wrap-up + MERGE-STRATEGY refresh (new launcher
-  watch item, refreshed test baselines).
-- `51ff4872e` — 1.3.0 bump (minor: /copy command, suggested prompts,
-  new reviewer/base2 agents, SSRF guard are user-visible).
-
-Upstream brought: `sdk/src/tools/ssrf.ts` SSRF guard, bounded
-agent-template cache, `/copy`, suggested prompts, GLM/Kimi/MiniMax/Opus
-reviewer + base2 agents, bun 1.3.14, plus freebuff-only surface (inert
-in BYOK mode).
+Upstream sync and automatic Codex model discovery are implemented, reviewed and installed locally. GitHub release 1.4.0 is public with all three platform archives. npm publishing awaits renewed authentication; registry `latest` remains 1.3.2.
 
 ## State
 
-- **In flight:** nothing — **v1.3.2 SHIPPED** (npm `codebuff-mod@1.3.2`
-  `latest` verified via registry-direct; GH release
-  https://github.com/EstarinAzx/codebuff-modded/releases/tag/v1.3.2
-  with 3 tarballs verified by name+size; `modded` + `v1.3.2` tag
-  pushed). 1.3.0/1.3.1 remain tagged.
-- **Open:** 1.3.2 is prompt-only — confirm on a live Codex OAuth run that
-  `mod-max` now emits a visible summary on read-only/explore tasks. If not,
-  escalate (structural guard).
-- **Verified pre-ship:** typecheck green common/sdk/cli; binary prints
-  1.3.0; conflict-map invariant greps all pass; test suites at
-  pre-existing baselines (common 1 / sdk 65 / cli 19+5err — suspicious
-  ones proven pre-existing via temp worktree at `b0488029d`).
-- **Not live-smoked:** the published 1.3.0 binary (carried habit —
-  1.1.0/1.2.0 shipped the same way; smoke recipe below).
-- **Blocked:** none.
+- **Done:** synced upstream snapshot `ab19b7582`, preserving BYOK behavior, fork launcher and agent templates. `main` is `88c4df13a`, a history-preserving bridge with exactly the upstream tree; `modded` includes the new upstream history. Neither branch was force-pushed.
+- **Done:** live Codex catalog, profile/credential/version-isolated five-minute cache, bounded refresh and catalog requests, labeled offline fallback, and future bare model IDs. Actual Astra discovery and a tool call followed by visible `CODEX_OAUTH_OK` succeeded using the existing native Codex login.
+- **Done:** independent review closed all three findings: legacy OAuth credential preservation, BYOK suppression of sponsored polling, and bounded OAuth refresh. Review artifact lives in this Traycer epic under `artifacts/upstream-integration-review/index.md`.
+- **Done:** Windows, Linux x64 and Linux arm64 archives built; each includes executable + `tree-sitter.wasm`. GitHub asset SHA-256 digests match the local archives. Packaged Windows startup and installed `cbm --version` both report 1.4.0. Linux archives were checked for architecture and contents but not executed on Linux.
+- **Blocked:** npm `whoami` returns HTTP 401. npm publish dry-run passed (five launcher files, 9.4 kB); actual publish has NOT run. No browser is connected to the agent runtime, so interactive sign-in needs the user.
+- **Authentication:** all three saved Codebuff Codex profiles return 401 on refresh. They were not overwritten with the native Codex account's tokens. Reconnect the desired account using `/providers:add codex`. The active `opencode-go` provider is unchanged.
 
 ## Pick up here
 
-Nothing required — 1.3.0 is out. Optional:
+1. Complete npm sign-in, verify ownership (`npm whoami`; expected historical publisher `tsd47216`), then run `npm publish` from `cli/release` per [MERGE-STRATEGY](../MERGE-STRATEGY.md). GitHub release/tag/assets already exist; do not recreate them or overwrite the tag.
+2. Verify registry-direct `codebuff-mod/latest` is 1.4.0, then update this handoff and [[overview]].
+3. For Codex use, run `cbm`, `/providers:add codex`, complete browser OAuth, then `/model`. Newly discovered account models use bare IDs such as `gpt-6-astra`.
 
-1. **Live smoke on published binary** (carried since 1.1.0): fresh
-   `npm i -g codebuff-mod` → `cbm` → `/providers:list` → small prompt
-   (Path C) → `web_search` with `SERPER_API_KEY`.
-2. **Fallback-chain live smoke:** Brave/Tavily key + bad Serper key.
-3. **Upstream's new SSRF guard** touches `read_url` — worth one manual
-   `read_url` call in BYOK mode to confirm no false-positive blocking.
+## Verification and limits
 
-## Landmines / notes
+- Common, SDK and CLI typechecks pass. Targeted checks include provider/store/discovery tests, credential preservation and ad suppression, real SDK 7 OAuth reasoning replay, Anthropic image compatibility, and Context7/read_docs (15 tests).
+- Broad Windows suites are NOT fully green. Common: 1616 pass / 25 fail; the same 25 failure names reproduce in upstream (1612 pass). SDK: 517 pass / 92 fail / 15 skip; upstream has 469 pass / 93 fail / 15 skip, with no fork-only failure names.
+- Last broad CLI run: 3190 pass / 32 fail / 26 skip, with no loader errors after repairing the missing public-snapshot test helper. One contradictory upstream OAuth-deletion expectation was subsequently corrected; the full credential-storage file passes 21/21. Other failures include Windows paths, unavailable sandbox containment, and upstream expectations conflicting with intentional fork behavior. Targeted feature checks are green.
+- Baseline worktree: `C:/Users/S.D/.traycer/worktrees/estarinazx__codebuff-modded/verify-upstream-2026-09-08`. Only test harness/Windows fixture adapters were applied there; production source stays upstream. Preserve it if comparing failures; cleanup is separate.
 
-- **Upstream tests assume posix** — triage new Windows failures against
-  the pre-merge commit in a temp worktree first. Baseline: common 1 /
-  sdk 65 / cli 19+5err (MERGE-STRATEGY "Test baseline").
-- **Never adopt upstream's `cli/release/index.js`** — downloads
-  `-baseline` tarballs the fork doesn't publish ([[decisions]]
-  2026-07-03; conflict-map HIGH entry).
-- **`testCiEnv.SERPER_API_KEY` is load-bearing** — see [[gotchas]].
-- Untracked `.codeboarding/` in repo root is the user's — keep out of
-  commits.
+## Recent context
 
-## Deferred — chase only if it surfaces
-
-- **`opencode` (Zen) preset still hardcoded** (2-id catalog, `opencode/`
-  prefix bug) — see [[gotchas]].
-- **3 un-shimmed React hooks** (`use-connection-status`, `use-gravity-ad`,
-  `use-agent-validation`) — in-place `BYOK_AT_BOOT` logic.
-- **`ForkHooks.shouldSkipReactHook` dead field** (~10 lines).
-- **macOS binaries** — build-binary.ts supports, never shipped.
-- **Baseline (non-AVX2) binaries** — port upstream launcher probe only
-  together with shipping `-baseline` tarballs.
-- **Delete `LoginModal` + `cli/src/login/*`** — unreachable post-0.1.10.
-
-## Open questions (carry-over)
-
-- `codexspark`/`codexplan` aliases unverified on OAuth-bearer path.
-- Token-refresh ergonomics (`getValidCodexCredentials` throw mid-loop).
-- `/connect:chatgpt` deprecation timing.
-
-## Security carry-over
-
-- Revoked OpenCode key still plaintext in
-  `~/.config/manicode/message-history.json` (user declined scrub).
-- User's Serper key pasted in-chat 2026-06-11 (transcript on disk);
-  rotation advised, low stakes.
-- `codex-oauth.json` 0600, tokens plaintext — same model as
-  `providers.json`.
-
-## Rollback paths
-
-- **Undo 1.3.0:** can't unpublish npm; ship a 1.3.1 from `b0488029d`
-  content if catastrophic. GH release + tag deletable.
-- **Undo the sync commits:** `git revert -m 1 595adc673` + revert the
-  follow-ups (now pushed — revert, don't reset).
-- **Older anchors:** strategy-B restore via `e534b0650`;
-  `v1.0.2-pre-shim`; UI fixes `230fd309c`/`0d5a84979`.
+- The launcher fetches npm's published version. Installing the unpublished 1.4.0 wrapper initially downloaded 1.3.2. The verified 1.4.0 executable/WASM and truthful version metadata were installed in the local cache afterward; `cbm --version` is now 1.4.0. Rollback copies have suffix `.before-1.4.0-001531c455ce4ae2a4c95915c63aa521` in `~/.config/manicode`.
+- Package requests on this machine needed `NODE_EXTRA_CA_CERTS=C:/Users/S.D/AppData/Local/Temp/codebuff-windows-trust.pem`, exported from existing Windows trust roots. TLS verification and permanent settings were preserved.
+- Linux cross-builds used the existing `BUN_COMPILE_EXECUTABLE_PATH` override with integrity-verified Bun 1.3.14 runtimes; a spaceless junction alone was insufficient. See the release runbook.
+- Automatic discovery remains protocol-version gated. Current verified compatibility is 0.153.4; new model names require no catalog edit, but newer protocol requirements may require a compatibility update.
+- User-owned `.codeboarding/` remains untracked and untouched.
 
 ## Related
 
@@ -154,4 +50,3 @@ Nothing required — 1.3.0 is out. Optional:
 - [[stack]]
 - [[decisions]]
 - [[gotchas]]
-- [MERGE-STRATEGY.md](../MERGE-STRATEGY.md)

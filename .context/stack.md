@@ -1,7 +1,7 @@
 ---
 type: stack
 project: codebuff (fork — modded branch)
-updated: 2026-06-11
+updated: 2026-09-08
 tags: [stack, tooling, byok]
 ---
 
@@ -15,10 +15,10 @@ tags: [stack, tooling, byok]
 
 ## Frameworks
 
-- **OpenTUI + React** — `cli/` TUI (the only shipped surface)
+- **OpenTUI 0.3.4 + React** — `cli/` TUI (the only shipped surface)
 - **Zod v4** — env schema + request validation (`common/src/env-schema.ts`)
-- **Vercel AI SDK** (`@ai-sdk/*`) + vendored **`@codebuff/llm-providers`** (`openai-compatible` factory) — the model-call plumbing SDK Path C dispatches through
-- ~~Next.js / undici / Drizzle~~ — gone with `web/` + `packages/internal` in the strategy-B sync (2026-06-11)
+- **Vercel AI SDK 7** (`@ai-sdk/*`) + vendored **`@codebuff/llm-providers`** (`openai-compatible` factory) — the model-call plumbing SDK Path C dispatches through
+- The Next.js/Drizzle backend is gone with `web/` + `packages/internal`; the SDK still uses undici for HTTP.
 
 ## External services
 
@@ -52,7 +52,7 @@ SDK Path B (`CODEBUFF_USE_BACKEND=1`, in `sdk/src/impl/database.ts`) still exist
 Shared surface (survives in the lean tree):
 
 - Model catalog (whitelist) — `common/src/constants/model-config.ts`
-- Codex OAuth model map (single source of truth) — `common/src/constants/chatgpt-oauth.ts`
+- Codex OAuth protocol version, legacy aliases and offline fallback — `common/src/constants/chatgpt-oauth.ts`
 - Env schema — `common/src/env-schema.ts` (the server-side `packages/internal` schema was deleted)
 - Agent templates — `agents/` (bundled at build time) + `.agents/` (loaded at runtime)
 - Model-call plumbing — `packages/llm-providers/src/openai-compatible/` (vendored from upstream; SDK Path C imports it)
@@ -60,7 +60,7 @@ Shared surface (survives in the lean tree):
 BYOK fork additions (`modded` branch):
 
 - Profile store — `cli/src/utils/providers.ts` (CRUD against `~/.config/manicode/providers.json`, schema v3 with `oauthProfileId`, 0600). Holds profiles **and** `agentBindings: Record<agentId, profileId>` for per-agent routing.
-- Model catalog/probe — `cli/src/utils/providers-models.ts` (hardcoded ids + live `/v1/models` probe with 24h cache at `~/.config/manicode/models-cache.json`)
+- Model catalog/probe — `cli/src/utils/providers-models.ts` (generic catalogs/probes plus account-scoped Codex `/codex/models` discovery; 24h generic cache and 5-minute Codex cache at `~/.config/manicode/models-cache.json`)
 - Slash commands — `cli/src/commands/providers.ts` (`/providers*` + `/model`) registered in `cli/src/commands/command-registry.ts`. Includes `/providers:bind`, `/providers:unbind`, `/providers:bindings` as of 0.1.5.
 - SDK Path C — `sdk/src/impl/model-provider.ts` (one-line hook dispatch since 1.0.3). State exports: `BYOKProfile`, `setActiveByokProfile`, `setByokAgentBindings`. Resolution logic moved to fork-impls (see below).
 - Backend skip gate — `sdk/src/impl/database.ts` (one-line hook dispatch since 1.0.3). Logic in `sdk/src/impl/fork-impls/backend-skip.ts`.
@@ -71,7 +71,7 @@ BYOK fork additions (`modded` branch):
 Hook registry + fork-impls (added 1.0.3 shim refactor):
 
 - Registry contract — `sdk/src/impl/fork-hooks.ts` (`ForkHooks` interface, `registerForkHooks()`, `getForkHooks()`). Upstream files call `getForkHooks().<name>?.(...)` for fork-local dispatch.
-- Boot registration — `cli/src/init/init-app.ts` calls `registerForkHooks({...})` before `setActiveByokProfile()` / `setByokAgentBindings()`.
+- Boot state — `cli/src/init/init-app.ts` pushes `setActiveByokProfile()` / `setByokAgentBindings()`. Importing the SDK BYOK resolver registers the fork hooks.
 - SDK impls:
   - `sdk/src/impl/fork-impls/byok-resolver.ts` — Path C resolution (raw-key + codex OAuth), per-agent binding lookup, `BYOKProfile`-to-LanguageModel.
   - `sdk/src/impl/fork-impls/backend-skip.ts` — `shouldSkipBackend()` + synthetic-user fallback.

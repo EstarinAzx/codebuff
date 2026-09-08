@@ -1,7 +1,7 @@
 ---
 type: gotchas
 project: codebuff (fork — modded branch)
-updated: 2026-06-11
+updated: 2026-09-08
 tags: [gotchas, shim]
 ---
 
@@ -39,7 +39,7 @@ Upstream's lean snapshot root `package.json` dropped the `typecheck` and `test` 
 
 ## bun `--compile` chokes on spaced project paths
 
-Cross-compiling Linux x64 / arm64 binaries from Windows fails with `Failed to extract executable for 'bun-linux-{arch}-vX.Y.Z'. The download may be incomplete.` when the project path contains spaces (e.g. `D:\.claude\claude projects\codebuff`). Bun's internal extract path inherits the spaced path and trips Windows' extraction logic. Workaround: create a junction to a spaceless path (`New-Item -ItemType Junction -Path C:\cb -Target "D:\.claude\claude projects\codebuff"`), then run `bun run build:binary` from PowerShell with `cd C:\cb\cli`. Native Win x64 builds work fine from the spaced path.
+Cross-compiling Linux x64 / arm64 from a spaced Windows path can fail with `Failed to extract executable ... The download may be incomplete.` A junction did not fix the September 2026 build because the script resolved the original path. Use the existing `BUN_COMPILE_EXECUTABLE_PATH` override with an integrity-verified matching Bun runtime, as specified in [MERGE-STRATEGY Step 6](../MERGE-STRATEGY.md). Native Windows builds work from the original path.
 
 ## bun's bundled tar on Windows can't extract OpenTUI native bundles
 
