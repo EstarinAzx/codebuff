@@ -49,6 +49,7 @@ import { useChatStore } from '../state/chat-store'
 import { isUserActive } from '../utils/activity-tracker'
 import { getAuthToken } from '../utils/auth'
 import { logger } from '../utils/logger'
+import { getActiveProfile } from '../utils/providers'
 import { getSystemMessage } from '../utils/message-history'
 import { fetchSponsoredProposal } from '../utils/sponsored-proposal-api'
 import { sponsoredProposalTarget } from '../utils/sponsored-proposal-target'
@@ -224,7 +225,8 @@ function findProposalBlockForTarget(
 ): SponsoredProposalContentBlock | null {
   for (let i = messages.length - 1; i >= 0; i--) {
     for (const block of messages[i]!.blocks ?? []) {
-      if (isSponsoredProposalBlock(block) && block.target === target) return block
+      if (isSponsoredProposalBlock(block) && block.target === target)
+        return block
     }
   }
   return null
@@ -284,6 +286,14 @@ export function useSponsoredProposal(
 
   useEffect(() => {
     if (!enabled || !hasUserMessaged) return
+    // PORT: match the display-ad rail's backend/profile suppression. Keep
+    // this inside the effect so every render calls the same React hooks.
+    if (process.env.CODEBUFF_USE_BACKEND !== '1') return
+    try {
+      if (getActiveProfile() !== null) return
+    } catch {
+      // A corrupt profile store must not break an opted-in backend session.
+    }
     let cancelled = false
 
     const tick = async (): Promise<void> => {

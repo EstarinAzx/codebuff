@@ -121,9 +121,8 @@ function loadCliEnv(): Record<string, string> {
 
   try {
     ensureCliEnvDefaults()
-    // NOTE: Inline require() is used for lazy loading - the env module depends on
-    // Infisical secrets which may not be available at module load time in test environments
-    const { env } = require('../../../packages/internal/src/env') as {
+    // Load after applying fixtures; the public snapshot has no packages/internal.
+    const { env } = require('../../../common/src/env') as {
       env: Record<string, unknown>
     }
 
@@ -144,8 +143,7 @@ function loadCliEnv(): Record<string, string> {
         ? error.message
         : 'unknown error loading environment'
     throw new Error(
-      `Failed to load CLI environment via packages/internal/src/env: ${message}. ` +
-        'Run commands via "infisical run -- bun …" or export the required variables.',
+      `Failed to load CLI test environment: ${message}. Check the test environment fixtures.`,
     )
   }
 }

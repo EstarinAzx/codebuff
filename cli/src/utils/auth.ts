@@ -4,7 +4,6 @@ import path from 'path'
 import { getCiEnv } from '@codebuff/common/env-ci'
 import { z } from 'zod'
 
-
 import { getApiClient, setApiClientAuthToken } from './codebuff-api'
 import { getConfigDir as getConfigDirBase } from './config-dir'
 import { logger } from './logger'
@@ -166,22 +165,14 @@ export interface AuthValidationResult {
 /**
  * Read existing credentials file, returns empty object if missing/invalid.
  *
- * Drops `chatgptOAuth`, which the removed ChatGPT integration wrote. Both
- * callers spread this result straight back over the file, so the dead key —
- * an OAuth access and refresh token for the user's ChatGPT account — is
- * cleaned up the next time we write for any reason. Doing it here rather than
- * in a startup pass means no extra write and no new race with login/logout;
- * nothing reads the key anymore, and with /connect gone the user has no way
- * to clear it themselves.
+ * Preserve other entries, including `chatgptOAuth` used by SDK Path A.
+ * Saving or clearing the Codebuff login should only change `default`.
  */
 const readCredentialsFile = (): Record<string, unknown> => {
   const credentialsPath = getCredentialsPath()
   if (!fs.existsSync(credentialsPath)) return {}
   try {
-    const { chatgptOAuth: _removedIntegration, ...rest } = JSON.parse(
-      fs.readFileSync(credentialsPath, 'utf8'),
-    )
-    return rest
+    return { ...JSON.parse(fs.readFileSync(credentialsPath, 'utf8')) }
   } catch {
     return {}
   }
