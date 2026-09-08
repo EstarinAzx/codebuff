@@ -13,6 +13,7 @@ import { randomBytes } from 'crypto'
 import fs from 'fs'
 import os from 'os'
 import path from 'path'
+import { GROK_BASE_URL } from '@codebuff/common/constants/grok'
 
 export type ProviderPreset =
   | 'openai'
@@ -26,9 +27,10 @@ export type ProviderPreset =
   | 'deepseek'
   | 'gemini'
   | 'codex'
+  | 'grok'
   | 'custom-openai'
 
-export type ProviderProtocol = 'openai' | 'anthropic'
+export type ProviderProtocol = 'openai' | 'anthropic' | 'grok'
 
 export type ProviderProfile = {
   id: string
@@ -41,10 +43,8 @@ export type ProviderProfile = {
   createdAt: string
   isActive?: boolean
   /**
-   * For OAuth-backed presets (codex), the per-profile credentials key stored in
-   * `~/.config/manicode/codex-oauth.json`. When present, SDK Path C dispatches
-   * through the ChatGPT backend with the profile's own OAuth token instead of
-   * the apiKey field (which stays empty for OAuth profiles).
+   * Per-profile key in codex-oauth.json or grok-oauth.json. The provider selects
+   * the credential store and subscription endpoint. apiKey stays empty.
    *
    * Convention: equals `profile.id`. Stored explicitly so future migration
    * (e.g. multi-account refactor) can decouple the two.
@@ -185,6 +185,14 @@ const PRESET_DEFAULTS: Record<ProviderPreset, ProviderPresetDefaults> = {
     defaultModel: 'openai/gpt-5.1',
     requiresApiKey: false,
   },
+  grok: {
+    preset: 'grok',
+    name: 'Grok (SuperGrok OAuth)',
+    provider: 'grok',
+    baseUrl: GROK_BASE_URL,
+    defaultModel: 'grok-4.6',
+    requiresApiKey: false,
+  },
   'custom-openai': {
     preset: 'custom-openai',
     name: 'Custom OpenAI-compatible',
@@ -220,7 +228,7 @@ function isValidPreset(value: unknown): value is ProviderPreset {
 }
 
 function isValidProtocol(value: unknown): value is ProviderProtocol {
-  return value === 'openai' || value === 'anthropic'
+  return value === 'openai' || value === 'anthropic' || value === 'grok'
 }
 
 function sanitizeProfile(raw: unknown): ProviderProfile | null {
@@ -409,7 +417,7 @@ export type AddProfileInput = {
   baseUrl?: string
   model?: string
   makeActive?: boolean
-  /** For OAuth-backed presets — codex profiles carry their own creds key. */
+  /** OAuth profiles carry their own credentials key. */
   oauthProfileId?: string
 }
 
@@ -423,12 +431,10 @@ export function addProfile(
     throw new Error(`baseUrl required for preset "${input.preset}"`)
   }
   const id = newProfileId()
-  // Codex (OAuth) profiles always carry an oauthProfileId — defaults to the
-  // profile's own id so per-profile creds in codex-oauth.json are colocated
-  // by the same key. Callers may override (multi-account migration hook).
+  // OAuth credentials use the profile's own id unless explicitly overridden.
   const explicitOauthId = trim(input.oauthProfileId)
   const oauthProfileId =
-    explicitOauthId || (input.preset === 'codex' ? id : '')
+    explicitOauthId || (input.preset === 'codex' || input.preset === 'grok' ? id : '')
   const profile: ProviderProfile = {
     id,
     name: trim(input.name) || defaults.name,

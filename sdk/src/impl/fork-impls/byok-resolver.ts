@@ -7,6 +7,7 @@
  * and upstream Path A/B runs.
  *
  * Two sub-branches:
+ * - Grok subscription profiles → xAI Responses with separate Grok credentials.
  * - Path C-oauth — profile.oauthProfileId set (codex preset) → resolve
  *   creds from `sdk/src/codex-credentials.ts` and dispatch through
  *   `createOpenAIOAuthModel` (ChatGPT-backend endpoint, same as Path A).
@@ -28,11 +29,13 @@ import {
 } from '@codebuff/llm-providers/openai-compatible'
 
 import { getValidCodexCredentials } from '../../codex-credentials'
+import { getValidGrokCredentials } from '../../grok-oauth'
 import { registerForkHooks } from '../fork-hooks'
 import { createOpenAIOAuthModel } from '../model-provider'
 
 import { registerBackendSkipHooks } from './backend-skip'
 import { registerRunidSynthHooks } from './runid-synth'
+import { createGrokModel } from './grok-model'
 
 import type { ModelRequestParams, ModelResult } from '../model-provider'
 import type { LanguageModel } from 'ai'
@@ -44,7 +47,7 @@ import type { LanguageModel } from 'ai'
  */
 export type BYOKProfile = {
   /** Wire protocol — picks the provider client. */
-  provider: 'openai' | 'anthropic'
+  provider: 'openai' | 'anthropic' | 'grok'
   /** Provider base URL (no trailing slash). */
   baseUrl: string
   /** API key for Authorization: Bearer. */
@@ -58,10 +61,8 @@ export type BYOKProfile = {
    */
   model?: string
   /**
-   * When set, Path C dispatches through the ChatGPT backend (Codex endpoint)
-   * using the per-profile OAuth token stored at
-   * `~/.config/manicode/codex-oauth.json` keyed by this id. apiKey is ignored
-   * for these profiles. Set for `codex` preset profiles only.
+   * Per-profile OAuth credentials key. Grok uses grok-oauth.json; other OAuth
+   * profiles use codex-oauth.json. apiKey is ignored for subscription profiles.
    */
   oauthProfileId?: string
 }
@@ -79,7 +80,7 @@ let byokAgentBindings: Record<string, BYOKProfile> = {}
 function normalizeProfile(profile: BYOKProfile, label: string): BYOKProfile {
   const baseUrl = (profile.baseUrl ?? '').replace(/\/+$/, '')
   if (
-    (profile.provider !== 'openai' && profile.provider !== 'anthropic') ||
+    (profile.provider !== 'openai' && profile.provider !== 'anthropic' && profile.provider !== 'grok') ||
     !baseUrl ||
     typeof profile.apiKey !== 'string'
   ) {
@@ -170,6 +171,14 @@ export async function resolveByok(
   // (agent templates would otherwise request models the user's provider can't
   // serve). User swaps with /model; see cli/src/commands/providers.ts.
   const resolvedModel = profileForRequest.model ?? model
+
+  if (profileForRequest.provider === 'grok') {
+    const credentials = profileForRequest.oauthProfileId
+      ? await getValidGrokCredentials(profileForRequest.oauthProfileId)
+      : null
+    if (!credentials) throw new Error('Grok OAuth credentials unavailable; run /providers:add grok.')
+    return { model: createGrokModel(resolvedModel, credentials.accessToken), isChatGptOAuth: false }
+  }
 
   // OAuth-backed profile (codex preset) — dispatch through the ChatGPT
   // backend with the profile's per-profileId OAuth token instead of the

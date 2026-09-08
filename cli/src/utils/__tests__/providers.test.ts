@@ -36,6 +36,15 @@ afterEach(() => {
 })
 
 describe('providers — file I/O', () => {
+  test('Grok subscription profiles persist their own OAuth routing without changing the active profile', () => {
+    const existing = addProfile({ name: 'Existing', preset: 'openai', apiKey: 'key' }, tmpFile)
+    const grok = addProfile({ name: 'Grok', preset: 'grok', makeActive: false }, tmpFile)
+    expect(loadProfiles(tmpFile).find((p) => p.id === grok.id)).toMatchObject({
+      provider: 'grok', apiKey: '', oauthProfileId: grok.id,
+    })
+    expect(getActiveProfile(tmpFile)?.id).toBe(existing.id)
+  })
+
   test('loadProfiles on missing file returns empty', () => {
     expect(loadProfiles(tmpFile)).toEqual([])
   })
@@ -277,7 +286,7 @@ describe('providers — presets', () => {
       const d = getPresetDefaults(preset)
       expect(d.preset).toBe(preset)
       expect(d.name.length).toBeGreaterThan(0)
-      expect(d.provider === 'openai' || d.provider === 'anthropic').toBe(true)
+      expect(['openai', 'anthropic', 'grok']).toContain(d.provider)
       if (preset !== 'custom-openai') {
         expect(d.baseUrl.length).toBeGreaterThan(0)
         expect(d.defaultModel.length).toBeGreaterThan(0)
@@ -285,10 +294,10 @@ describe('providers — presets', () => {
     }
   })
 
-  test('anthropic preset uses anthropic protocol; rest use openai-compat', () => {
+  test('provider presets select their supported wire clients', () => {
     expect(getPresetDefaults('anthropic').provider).toBe('anthropic')
     for (const preset of listPresets()) {
-      if (preset === 'anthropic') continue
+      if (preset === 'anthropic' || preset === 'grok') continue
       expect(getPresetDefaults(preset).provider).toBe('openai')
     }
   })

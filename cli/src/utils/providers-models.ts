@@ -5,7 +5,7 @@
  *   - free-text input (custom-openai)
  *
  * Live probe results land in `<configDir>/models-cache.json`: 5 minutes for
- * account-scoped Codex discovery, 24 hours for generic providers.
+ * account-scoped OAuth discovery, 24 hours for generic providers.
  * Cache busted by `/providers:refresh-models`.
  *
  * Consumed by `/providers:add` step 4 model picker and `/model` runtime swap.
@@ -21,15 +21,18 @@ import {
   CODEX_CLIENT_VERSION,
   OPENROUTER_TO_OPENAI_MODEL_MAP,
 } from '@codebuff/common/constants/chatgpt-oauth'
+import { GROK_CLIENT_VERSION, GROK_FALLBACK_MODELS } from '@codebuff/common/constants/grok'
 import {
   extractChatGptAccountId,
   getValidCodexCredentials,
+  getValidGrokCredentials,
+  fetchGrokModels,
 } from '@codebuff/sdk'
 
 import type { ProviderPreset } from './providers'
 
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000
-const CODEX_CACHE_TTL_MS = 5 * 60 * 1000
+const OAUTH_CACHE_TTL_MS = 5 * 60 * 1000
 
 export const MODEL_CATALOG: Record<ProviderPreset, string[]> = {
   openai: ['gpt-5.1', 'gpt-5.1-chat', 'gpt-4.1', 'gpt-4o', 'o3', 'o4-mini'],
@@ -48,6 +51,7 @@ export const MODEL_CATALOG: Record<ProviderPreset, string[]> = {
   'opencode-go': [],
   // Offline fallback only. Live slugs are bare IDs, which Path C routes directly.
   codex: Object.values(OPENROUTER_TO_OPENAI_MODEL_MAP),
+  grok: GROK_FALLBACK_MODELS,
   // Empty + special-cased → free-text input
   'custom-openai': [],
 }
@@ -86,8 +90,8 @@ function cacheKey(preset: ProviderPreset, baseUrl: string): string {
   return `${preset}:${baseUrl.replace(/\/+$/, '')}`
 }
 
-function codexCachePrefix(profileId: string): string {
-  return `codex-profile:${encodeURIComponent(profileId)}:`
+function oauthCachePrefix(preset: ProviderPreset, profileId: string): string {
+  return `${preset}-profile:${encodeURIComponent(profileId)}:`
 }
 
 function readCacheFile(filePath: string): CacheFile {
@@ -167,11 +171,11 @@ export function clearCachedModels(params: {
   const filePath = params.filePath ?? getModelsCachePath()
   const file = readCacheFile(filePath)
   const keys =
-    params.preset === 'codex'
+    params.preset === 'codex' || params.preset === 'grok'
       ? Object.keys(file).filter(
           (key) =>
             params.oauthProfileId &&
-            key.startsWith(codexCachePrefix(params.oauthProfileId)),
+            key.startsWith(oauthCachePrefix(params.preset, params.oauthProfileId)),
         )
       : [cacheKey(params.preset, params.baseUrl)].filter((key) => key in file)
   if (keys.length === 0) return false
@@ -289,6 +293,7 @@ export async function getModelsForPreset(params: {
   apiKey: string
   oauthProfileId?: string
   getCodexCredentials?: typeof getValidCodexCredentials
+  getGrokCredentials?: typeof getValidGrokCredentials
   forceRefresh?: boolean
   filePath?: string
   fetchImpl?: typeof globalThis.fetch
@@ -297,19 +302,24 @@ export async function getModelsForPreset(params: {
   const { preset, baseUrl, apiKey, forceRefresh, filePath, fetchImpl, now } =
     params
 
-  if (preset === 'codex') {
+  if (preset === 'codex' || preset === 'grok') {
+    const label = preset === 'grok' ? 'Grok' : 'Codex'
+    const clientVersion = preset === 'grok' ? GROK_CLIENT_VERSION : CODEX_CLIENT_VERSION
+    const getCredentials = preset === 'grok'
+      ? params.getGrokCredentials ?? getValidGrokCredentials
+      : params.getCodexCredentials ?? getValidCodexCredentials
     let cached: CacheEntry | undefined
     let authenticated = false
     try {
       const credentials = params.oauthProfileId
-        ? await (params.getCodexCredentials ?? getValidCodexCredentials)(
+        ? await getCredentials(
             params.oauthProfileId,
           )
         : null
-      if (!credentials) throw new Error('Codex sign-in required')
+      if (!credentials) throw new Error(`${label} sign-in required`)
       authenticated = true
       // Hashing the token isolates replacement accounts and rotations without storing secrets.
-      const key = `${codexCachePrefix(params.oauthProfileId!)}${CODEX_CLIENT_VERSION}:${createHash(
+      const key = `${oauthCachePrefix(preset, params.oauthProfileId!)}${clientVersion}:${createHash(
         'sha256',
       )
         .update(credentials.accessToken)
@@ -319,11 +329,11 @@ export async function getModelsForPreset(params: {
       if (
         !forceRefresh &&
         cached &&
-        isCacheFresh(cached, now, CODEX_CACHE_TTL_MS)
+        isCacheFresh(cached, now, OAUTH_CACHE_TTL_MS)
       ) {
         return { source: 'cache', models: cached.models }
       }
-      const models = await fetchCodexModels(
+      const models = await (preset === 'grok' ? fetchGrokModels : fetchCodexModels)(
         credentials.accessToken,
         fetchImpl ?? globalThis.fetch,
       )
@@ -331,7 +341,7 @@ export async function getModelsForPreset(params: {
         const file = readCacheFile(cachePath)
         // Retain only this profile's current identity/version, preserving other profiles.
         for (const oldKey of Object.keys(file)) {
-          if (oldKey.startsWith(codexCachePrefix(params.oauthProfileId!)))
+          if (oldKey.startsWith(oauthCachePrefix(preset, params.oauthProfileId!)))
             delete file[oldKey]
         }
         file[key] = { fetchedAt: now ?? Date.now(), models }
@@ -343,10 +353,10 @@ export async function getModelsForPreset(params: {
     } catch {
       return {
         source: cached?.models.length ? 'stale-cache' : 'catalog',
-        models: cached?.models.length ? cached.models : MODEL_CATALOG.codex,
+        models: cached?.models.length ? cached.models : MODEL_CATALOG[preset],
         warning: authenticated
-          ? 'Could not refresh Codex models. Showing an offline fallback; check your connection or sign-in.'
-          : 'Codex sign-in is missing or expired. Showing bundled models; reconnect with /providers:add codex.',
+          ? `Could not refresh ${label} models. Showing an offline fallback; check your connection or sign-in.`
+          : `${label} sign-in is missing or expired. Showing bundled models; reconnect with /providers:add ${preset}.`,
       }
     }
   }

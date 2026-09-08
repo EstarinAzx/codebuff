@@ -145,6 +145,7 @@ function convertUserContentParts(content: unknown): unknown {
 
 export function convertMessages(
   messages: ChatCompletionsMessage[],
+  replayReasoning = true,
 ): unknown[] {
   const input: unknown[] = []
 
@@ -176,7 +177,7 @@ export function convertMessages(
           // once, right before the first function_call that references it.
           const emittedReasoning = new Set<string>()
           for (const tc of msg.tool_calls) {
-            const reasoning = reasoningByCallId.get(tc.id)
+            const reasoning = replayReasoning ? reasoningByCallId.get(tc.id) : undefined
             if (reasoning && !emittedReasoning.has(reasoning.id)) {
               input.push({
                 type: 'reasoning',
@@ -214,7 +215,7 @@ export function convertMessages(
   return input
 }
 
-function convertTools(tools: ChatCompletionsTool[]): unknown[] {
+export function convertTools(tools: ChatCompletionsTool[]): unknown[] {
   return tools.map((tool) => {
     if (tool.type === 'function' && tool.function) {
       return {
@@ -280,7 +281,7 @@ function transformRequestBody(
 // Response Transform: Responses API SSE → Chat Completions SSE
 // ============================================================================
 
-function createSseTransformStream(): TransformStream<Uint8Array, Uint8Array> {
+function createSseTransformStream(cacheReasoning = true): TransformStream<Uint8Array, Uint8Array> {
   const encoder = new TextEncoder()
   const decoder = new TextDecoder()
 
@@ -337,7 +338,8 @@ function createSseTransformStream(): TransformStream<Uint8Array, Uint8Array> {
         break
       }
 
-      case 'response.reasoning_summary_text.delta': {
+      case 'response.reasoning_summary_text.delta':
+      case 'response.reasoning_text.delta': {
         emit(controller, {
           id: responseId,
           choices: [
@@ -406,11 +408,12 @@ function createSseTransformStream(): TransformStream<Uint8Array, Uint8Array> {
       }
 
       case 'response.completed':
+      case 'response.incomplete':
       case 'response.done': {
         const resp = data.response as Record<string, unknown> | undefined
         // Cache this turn's reasoning items so the next request can replay them
         // before their function_calls (see Reasoning continuity cache section).
-        captureReasoningFromOutput(resp?.output)
+        if (cacheReasoning) captureReasoningFromOutput(resp?.output)
         const usage = resp?.usage as Record<string, unknown> | undefined
         const status = resp?.status as string | undefined
 
@@ -523,10 +526,11 @@ function createSseTransformStream(): TransformStream<Uint8Array, Uint8Array> {
   })
 }
 
-function transformResponseStream(
+export function transformResponseStream(
   inputStream: ReadableStream<Uint8Array>,
+  cacheReasoning = true,
 ): ReadableStream<Uint8Array> {
-  const transform = createSseTransformStream()
+  const transform = createSseTransformStream(cacheReasoning)
   inputStream.pipeTo(transform.writable).catch(() => {})
   return transform.readable
 }

@@ -49,6 +49,8 @@ export {
   getCodexCredentialsPath,
 } from './codex-credentials'
 export type { CodexCredentialsFile } from './codex-credentials'
+export { startGrokDeviceLogin, getGrokCredentials, saveGrokCredentials, clearGrokCredentials, getValidGrokCredentials, fetchGrokModels } from './grok-oauth'
+export type { GrokCredentials } from './grok-oauth'
 export { extractChatGptAccountId } from './impl/chatgpt-backend-fetch'
 export { loadLocalAgents } from './agents/load-agents'
 export { loadMCPConfig, loadMCPConfigSync } from './agents/load-mcp-config'

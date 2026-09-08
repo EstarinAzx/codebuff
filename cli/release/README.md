@@ -39,9 +39,18 @@ Presets:
 | `mistral` | mistral-large-latest | api.mistral.ai |
 | `together` | meta-llama/Llama-3.3-70B-Instruct-Turbo | api.together.xyz |
 | `groq` | llama-3.3-70b-versatile | api.groq.com |
+| `grok` | grok-4.6 | SuperGrok subscription; `/providers:add grok [name]`, no API key |
 | `custom-openai` | (yours) | Any OpenAI-compatible endpoint — needs `<baseUrl>` arg |
 
 Then run any coding task. Agent picks model from your active profile, sends requests directly to your provider, no codebuff.com involvement.
+
+### Grok subscription login
+
+Run `/providers:add grok` (or `/providers:add grok Work` for a named account). Open the displayed xAI verification link, enter the code and approve. The CLI activates the profile after authorization succeeds; a denied or expired login leaves your current provider selected.
+
+Grok uses xAI's subscription proxy and the Responses API. Run `/model` for live account model discovery, `/model <id>` to switch, or `/providers:refresh-models` to refresh the five-minute cache. Offline lists are labeled. Tokens refresh automatically and are stored separately per profile in `~/.config/manicode/grok-oauth.json`; removing a Grok profile removes its stored tokens. `/providers:test` checks Grok authentication and catalog access without generating a paid request.
+
+The integration follows the device-code protocol inspected in [pi-grok](https://github.com/stnly/pi-grok/tree/8b304e65c088f84ccb932959d97739245fe47d97). It does not change your xAI account's privacy settings.
 
 ## Commands
 
@@ -51,8 +60,8 @@ Then run any coding task. Agent picks model from your active profile, sends requ
 | `/providers:add <preset> <name> <apiKey>` | Add a new profile, set active |
 | `/providers:select <id\|name>` | Switch active profile |
 | `/providers:remove <id\|name>` | Remove a profile |
-| `/providers:test` | Send a 1-token ping to verify the active profile works |
-| `/providers:refresh-models` | Bust the 24h `/v1/models` cache for the active profile |
+| `/providers:test` | Check the active provider (Grok: authentication/catalog; API-key providers: 1-token ping) |
+| `/providers:refresh-models` | Clear the active profile's models cache (OAuth: 5 minutes; other providers: 24 hours) |
 | `/model` | Show current model + live-probe available ids |
 | `/model <id>` | Swap model on the active profile |
 | `/mode:default` `/mode:lite` `/mode:max` `/mode:plan` | Switch agent mode (mod-* templates in `.agents/`) |

@@ -6,7 +6,8 @@
  * the source of truth for the command logic.
  */
 
-import { setActiveByokProfile, setByokAgentBindings } from '@codebuff/sdk'
+import { setActiveByokProfile, setByokAgentBindings, startGrokDeviceLogin, saveGrokCredentials, clearGrokCredentials, getValidGrokCredentials, fetchGrokModels } from '@codebuff/sdk'
+import { safeOpen } from '../utils/open-url'
 
 import {
   connectCodexOAuthForProfile,
@@ -111,12 +112,16 @@ export function handleProvidersAdd(args: string): string {
       `Presets: ${listPresets().join(', ')}`,
       'For custom-openai: /providers:add custom-openai <name> <apiKey> <baseUrl> [model]',
       'For codex (ChatGPT OAuth): /providers:add codex [name]',
+      'For grok (SuperGrok OAuth): /providers:add grok [name]',
     ].join('\n')
   }
 
   const presetRaw = parts[0]
   if (!isPreset(presetRaw)) {
     return `Unknown preset "${presetRaw}". Available: ${listPresets().join(', ')}`
+  }
+  if (presetRaw === 'grok') {
+    return 'Run /providers:add grok [name] through the slash-command router to sign in with your Grok subscription.'
   }
   if (presetRaw === 'codex') {
     return [
@@ -217,11 +222,23 @@ export function handleProvidersRemove(args: string): string {
   if (!target) {
     return `No unique profile matches "${args.trim()}".`
   }
+  let droppedTokens = false
+  if (target.preset === 'grok' && target.oauthProfileId) {
+    try {
+      droppedTokens = clearGrokCredentials(target.oauthProfileId)
+    } catch (error) {
+      return `Could not remove Grok profile: ${error instanceof Error ? error.message : String(error)}`
+    }
+    try {
+      clearCachedModels({ preset: 'grok', baseUrl: target.baseUrl, oauthProfileId: target.oauthProfileId })
+    } catch {
+      // A disposable cache must not prevent removal of a disconnected profile.
+    }
+  }
   const wasActive = getActiveProfile()?.id === target.id
   removeProfile(target.id)
   // Drop per-profile OAuth tokens when removing a codex profile so re-adding
   // forces a fresh browser flow (symmetric with /providers:add codex).
-  let droppedTokens = false
   if (target.preset === 'codex' && target.oauthProfileId) {
     droppedTokens = disconnectCodexProfileOAuth(target.oauthProfileId)
   }
@@ -319,6 +336,41 @@ export function handleProvidersAddCodex(args: string): {
   }
 }
 
+export async function handleProvidersAddGrok(
+  args: string,
+  startLogin = startGrokDeviceLogin,
+  openBrowser = safeOpen,
+): Promise<{ initial: string; completion: Promise<string> }> {
+  const name = args.trim().split(/\s+/).slice(1).join(' ') || getPresetDefaults('grok').name
+  try {
+    const login = await startLogin()
+    // No profile or active-state mutation until the user approves the login.
+    const completion = login.waitForCredentials().then((credentials) => {
+      const profile = addProfile({ preset: 'grok', name, makeActive: false })
+      try {
+        saveGrokCredentials(profile.id, credentials)
+        setActiveProfile(profile.id)
+      } catch (error) {
+        removeProfile(profile.id)
+        clearGrokCredentials(profile.id)
+        throw error
+      }
+      syncSdkActiveProfile(profile)
+      return `Connected Grok profile "${profile.name}" (${profile.id}) and set active.\nModel: ${profile.model}\nUse /model to discover your subscription models.`
+    }).catch((error: unknown) => `Grok OAuth failed: ${error instanceof Error ? error.message : String(error)}`)
+    void openBrowser(login.verificationUri).catch(() => {})
+    return {
+      initial: `Sign in to Grok: ${login.verificationUri}\nVerification code: ${login.userCode}\nApprove in your browser to connect "${name}". Waiting for authorization.`,
+      completion,
+    }
+  } catch (error) {
+    return {
+      initial: `Could not start Grok OAuth: ${error instanceof Error ? error.message : String(error)}`,
+      completion: Promise.resolve(''),
+    }
+  }
+}
+
 export async function handleProvidersTest(): Promise<string> {
   const profile = getActiveProfile()
   if (!profile) return 'No active profile. Add one with /providers:add.'
@@ -326,6 +378,12 @@ export async function handleProvidersTest(): Promise<string> {
   const baseUrl = profile.baseUrl.replace(/\/+$/, '')
 
   try {
+    if (profile.provider === 'grok') {
+      const credentials = profile.oauthProfileId ? await getValidGrokCredentials(profile.oauthProfileId) : null
+      if (!credentials) return 'Grok sign-in required. Run /providers:add grok.'
+      const models = await fetchGrokModels(credentials.accessToken)
+      return `OK: ${profile.name} authenticated in ${Date.now() - startedAt}ms (${models.length} subscription models).`
+    }
     if (profile.provider === 'anthropic') {
       const res = await fetch(`${baseUrl}/v1/messages`, {
         method: 'POST',
@@ -408,7 +466,7 @@ export async function handleModelCommand(
         catalog: 'curated catalog',
         probe: profile.preset === 'codex' ? 'live Codex account catalog' : `live ${profile.baseUrl}/models`,
         cache: profile.preset === 'codex' ? 'cached Codex account catalog' : `cached ${profile.baseUrl}/models`,
-        'stale-cache': 'previous Codex account catalog (offline)',
+        'stale-cache': `previous ${profile.preset === 'grok' ? 'Grok' : 'Codex'} account catalog (offline)`,
         freetext: 'free-text (no list available)',
       }[source]
       return [
