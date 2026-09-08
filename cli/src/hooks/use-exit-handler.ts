@@ -1,15 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 
 import { getCurrentChatId } from '../project-files'
-import { flushAnalytics } from '../utils/analytics'
 import { IS_FREEBUFF } from '../utils/constants'
-import { exitFreebuffCleanly } from '../utils/freebuff-exit'
-import { withTimeout } from '../utils/terminal-color-detection'
+import { exitCliCleanly } from '../utils/exit-cleanly'
 
 import type { InputValue } from '../types/store'
-
-// Timeout for analytics flush during exit - don't block exit for too long
-const EXIT_FLUSH_TIMEOUT_MS = 1000
 
 interface UseExitHandlerOptions {
   inputValue: string
@@ -39,27 +34,11 @@ function setupExitMessageHandler() {
   })
 }
 
-function exitCli(): void {
-  if (IS_FREEBUFF) {
-    void exitFreebuffCleanly()
-    return
-  }
-
-  withTimeout(flushAnalytics(), EXIT_FLUSH_TIMEOUT_MS, undefined).finally(
-    () => {
-      process.exit(0)
-    },
-  )
-}
-
 export const useExitHandler = ({
   inputValue,
   setInputValue,
 }: UseExitHandlerOptions) => {
   const [nextCtrlCWillExit, setNextCtrlCWillExit] = useState(false)
-  const exitWarningTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
-    null,
-  )
 
   useEffect(() => {
     setupExitMessageHandler()
@@ -79,30 +58,9 @@ export const useExitHandler = ({
       return true
     }
 
-    if (exitWarningTimeoutRef.current) {
-      clearTimeout(exitWarningTimeoutRef.current)
-      exitWarningTimeoutRef.current = null
-    }
-
-    exitCli()
+    void exitCliCleanly()
     return true
   }, [inputValue, setInputValue, nextCtrlCWillExit])
-
-  useEffect(() => {
-    const handleSigint = () => {
-      if (exitWarningTimeoutRef.current) {
-        clearTimeout(exitWarningTimeoutRef.current)
-        exitWarningTimeoutRef.current = null
-      }
-
-      exitCli()
-    }
-
-    process.on('SIGINT', handleSigint)
-    return () => {
-      process.off('SIGINT', handleSigint)
-    }
-  }, [])
 
   return { handleCtrlC, nextCtrlCWillExit }
 }

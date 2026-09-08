@@ -1,4 +1,4 @@
-import { publisher } from '../constants'
+import { OPUS_MODEL, publisher } from '../constants'
 
 import type { AgentDefinition } from '../types/agent-definition'
 
@@ -12,11 +12,11 @@ type CodeEditorVariant =
 
 const EDITOR_MODEL_BY_VARIANT: Record<CodeEditorVariant, string> = {
   'gpt-5': 'openai/gpt-5.1',
-  opus: 'anthropic/claude-opus-4.8',
+  opus: OPUS_MODEL,
   glm: 'z-ai/glm-5.1',
   kimi: 'moonshotai/kimi-k2.6',
   deepseek: 'deepseek/deepseek-v4-pro',
-  minimax: 'minimax/minimax-m2.7',
+  minimax: 'minimax/minimax-m3',
 }
 
 // Only Opus gets <think>-tag scaffolding in its instructions; the other

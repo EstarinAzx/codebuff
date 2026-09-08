@@ -1,4 +1,3 @@
-import { CHATGPT_OAUTH_ENABLED } from '@codebuff/common/constants/chatgpt-oauth'
 import { AGENT_MODES, IS_FREEBUFF } from '../utils/constants'
 
 import type { SkillsMap } from '@codebuff/common/types/skill'
@@ -43,9 +42,10 @@ const FREEBUFF_REMOVED_COMMAND_IDS = new Set([
 ])
 
 const FREEBUFF_ONLY_COMMAND_IDS = new Set([
-  'connect',
   'plan',
   'end-session',
+  'dashboard',
+  'reasoning',
 ])
 
 const ALL_SLASH_COMMANDS: SlashCommand[] = [
@@ -56,17 +56,12 @@ const ALL_SLASH_COMMANDS: SlashCommand[] = [
     aliases: ['h', '?'],
     implicitCommand: true,
   },
-  ...(CHATGPT_OAUTH_ENABLED
-    ? [
-        {
-          id: 'connect',
-          label: 'connect',
-          description: 'Connect your ChatGPT account',
-          aliases: ['connect:chatgpt', 'chatgpt'],
-        },
-      ]
-    : []),
-
+  {
+    id: 'diagnostics',
+    label: 'diagnostics',
+    description: 'Show local CLI resource usage and terminal tool process IDs',
+    aliases: ['diag', 'processes'],
+  },
   {
     id: 'ads:enable',
     label: 'ads:enable',
@@ -121,6 +116,12 @@ const ALL_SLASH_COMMANDS: SlashCommand[] = [
     description: 'Review code changes',
   },
   {
+    id: 'queue',
+    label: 'queue',
+    description: 'Edit, reorder, or delete the messages waiting to be sent',
+    aliases: ['queued'],
+  },
+  {
     id: 'new',
     label: 'new',
     description: 'Clear the conversation history and start a new chat',
@@ -137,7 +138,13 @@ const ALL_SLASH_COMMANDS: SlashCommand[] = [
     id: 'copy',
     label: 'copy',
     description: 'Copy the full conversation (messages + tool results) to the clipboard',
-    aliases: ['copy-chat', 'export'],
+    aliases: ['copy-chat'],
+  },
+  {
+    id: 'export',
+    label: 'export',
+    description: 'Write the full conversation to a file (.md, or .json for raw messages)',
+    aliases: ['export-chat'],
   },
   {
     id: 'agent:gpt-5',
@@ -180,10 +187,22 @@ const ALL_SLASH_COMMANDS: SlashCommand[] = [
     description: 'Toggle between light and dark mode',
   },
   {
+    id: 'reasoning',
+    label: 'reasoning',
+    description: 'Set how hard the current model thinks (low / high / max)',
+    aliases: ['effort', 'think'],
+  },
+  {
     id: 'end-session',
     label: 'end-session',
-    description: 'End your free session (lets you switch model)',
+    description: 'End session; get 90% of unspent cost back, rounded down',
     aliases: ['model'],
+  },
+  {
+    id: 'dashboard',
+    label: 'dashboard',
+    description: 'Open your usage, streak and account dashboard in the browser',
+    aliases: ['usage', 'stats', 'streak'],
   },
   {
     id: 'logout',
@@ -234,6 +253,7 @@ export function getSlashCommandsWithSkills(skills: SkillsMap): SlashCommand[] {
     id: `skill:${skill.name}`,
     label: `skill:${skill.name}`,
     description: truncateDescription(skill.description),
+    insertText: `/skill:${skill.name} `,
   }))
 
   const commands = [...SLASH_COMMANDS, ...skillCommands]

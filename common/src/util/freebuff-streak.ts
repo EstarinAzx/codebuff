@@ -1,7 +1,9 @@
 import {
-  FREEBUFF_GLM_V52_REFERRAL_ENABLED,
+  FREEBUFF_REWARD_REFERRAL_ENABLED,
   FREEBUFF_PREMIUM_SESSION_RESET_TIMEZONE,
-  FREEBUFF_STREAK_GLM_BONUS_ENABLED,
+  FREEBUFF_STREAK_REWARD_BONUS_ENABLED,
+  FREEBUFF_STREAK_REWARD_BONUS_MAX_MULTIPLIER,
+  FREEBUFF_STREAK_BONUS_SESSION_UNITS,
   FREEBUFF_STREAK_REWARD_INTERVAL_DAYS,
   FREEBUFF_STREAK_REWARDS_ENABLED,
 } from '../constants/freebuff-models'
@@ -92,12 +94,6 @@ export function calculateFreebuffStreak(params: {
   return { streak, todayUsed, lastUsageDate }
 }
 
-/** True when `streak` lands exactly on a streak-reward milestone (a positive
- *  multiple of the 7-day interval). */
-export function isFreebuffStreakMilestone(streak: number): boolean {
-  return streak > 0 && streak % FREEBUFF_STREAK_REWARD_INTERVAL_DAYS === 0
-}
-
 /**
  * Whether the full-access GLM 5.2 streak bonus is currently active. Requires all
  * three switches: streak rewards on, the GLM streak sub-switch on, AND the GLM
@@ -109,27 +105,52 @@ export function isFreebuffStreakMilestone(streak: number): boolean {
 export function isFreebuffStreakGlmBonusActive(): boolean {
   return (
     FREEBUFF_STREAK_REWARDS_ENABLED &&
-    FREEBUFF_STREAK_GLM_BONUS_ENABLED &&
-    FREEBUFF_GLM_V52_REFERRAL_ENABLED
+    FREEBUFF_STREAK_REWARD_BONUS_ENABLED &&
+    FREEBUFF_REWARD_REFERRAL_ENABLED
   )
 }
 
+/** GLM sessions per pool window earned by a streak of `streak` days, ignoring
+ * the feature gates: one per completed 7-day interval, capped at
+ * `FREEBUFF_STREAK_REWARD_BONUS_MAX_MULTIPLIER` (a 28-day streak earns the max).
+ * The GLM pool resets daily since 2026-07-29 (weekly before), so these units
+ * refill at that cadence. The name keeps its historical "Weekly". */
+export function getFreebuffStreakGlmWeeklyUnits(streak: number): number {
+  const tiers = Math.min(
+    Math.floor(streak / FREEBUFF_STREAK_REWARD_INTERVAL_DAYS),
+    FREEBUFF_STREAK_REWARD_BONUS_MAX_MULTIPLIER,
+  )
+  return tiers * FREEBUFF_STREAK_BONUS_SESSION_UNITS
+}
+
+/** Resolve the live GLM bonus directly from usage dates. The GLM pool gets +1
+ * per completed 7 days of the current streak (7 → 1, 14 → 2, capped at 4 for
+ * 28+) and refills at the pool reset (daily Pacific since 2026-07-29); once
+ * the streak breaks it gets 0. */
+export function getFreebuffStreakGlmBonusUnits(params: {
+  usageDates: readonly string[]
+  todayDateKey: string
+}): number {
+  if (!isFreebuffStreakGlmBonusActive()) return 0
+  const { streak } = calculateFreebuffStreak(params)
+  return getFreebuffStreakGlmWeeklyUnits(streak)
+}
+
 /**
- * The streak-reward pools to grant a bonus session in when today's usage just
- * completed a milestone, or `[]` when nothing should be awarded. Full-access
- * users get a premium-pool bonus plus a weekly GLM bonus (when the GLM
- * sub-switch is on); limited-access users get a limited-pool bonus. Returns `[]`
- * unless the streak is a milestone reached today and rewards are enabled.
+ * The daily streak-reward pool to persist after today's first usage, or `null`
+ * when nothing should be awarded. Full-access users receive a premium bonus;
+ * limited-access users receive a limited-pool bonus. GLM is intentionally not
+ * returned: its weekly +1 is derived live from usage dates, so it refills with
+ * the weekly quota and shuts off with the streak instead of becoming a one-time
+ * ledger grant.
  */
-export function streakRewardPoolsForMilestone(params: {
+export function getFreebuffDailyStreakRewardPool(params: {
   streak: number
   todayUsed: boolean
   accessTier: FreebuffAccessTier
-}): FreebuffStreakRewardPool[] {
-  if (!FREEBUFF_STREAK_REWARDS_ENABLED) return []
-  if (!params.todayUsed || !isFreebuffStreakMilestone(params.streak)) return []
-  if (params.accessTier === 'limited') return ['limited']
-  const pools: FreebuffStreakRewardPool[] = ['premium']
-  if (isFreebuffStreakGlmBonusActive()) pools.push('glm')
-  return pools
+}): Exclude<FreebuffStreakRewardPool, 'glm'> | null {
+  if (!FREEBUFF_STREAK_REWARDS_ENABLED) return null
+  if (!params.todayUsed) return null
+  if (params.streak < FREEBUFF_STREAK_REWARD_INTERVAL_DAYS) return null
+  return params.accessTier === 'limited' ? 'limited' : 'premium'
 }

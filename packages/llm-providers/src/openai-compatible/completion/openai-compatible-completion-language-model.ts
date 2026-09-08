@@ -17,7 +17,6 @@ import { openaiCompatibleCompletionProviderOptions } from './openai-compatible-c
 import type { OpenAICompatibleCompletionModelId } from './openai-compatible-completion-options'
 import type { ProviderErrorStructure } from '../openai-compatible-error'
 import type {
-  APICallError,
   LanguageModelV2,
   LanguageModelV2CallWarning,
   LanguageModelV2Content,
@@ -28,7 +27,6 @@ import type {
 import type {
   FetchFunction,
   ParseResult,
-  ResponseHandler,
 } from '@ai-sdk/provider-utils'
 
 type OpenAICompatibleCompletionConfig = {
@@ -50,7 +48,9 @@ export class OpenAICompatibleCompletionLanguageModel implements LanguageModelV2 
 
   readonly modelId: OpenAICompatibleCompletionModelId
   private readonly config: OpenAICompatibleCompletionConfig
-  private readonly failedResponseHandler: ResponseHandler<APICallError>
+  private readonly failedResponseHandler: ReturnType<
+    typeof createJsonErrorResponseHandler
+  >
   private readonly chunkSchema // type inferred via constructor
 
   constructor(
@@ -365,6 +365,11 @@ const createOpenAICompatibleCompletionChunkSchema = <
   errorSchema: ERROR_SCHEMA,
 ) =>
   z.union([
+    // Error branch first — see the chat model's schema for why: an error chunk
+    // that also carries `choices` otherwise matches the normal branch and has
+    // its `error` key stripped, silently turning a stated provider failure into
+    // an empty stream.
+    errorSchema,
     z.object({
       id: z.string().nullish(),
       created: z.number().nullish(),
@@ -378,5 +383,4 @@ const createOpenAICompatibleCompletionChunkSchema = <
       ),
       usage: usageSchema.nullish(),
     }),
-    errorSchema,
   ])

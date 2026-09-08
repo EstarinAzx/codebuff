@@ -16,6 +16,9 @@ import type { CliEnv } from '../types/env'
 export const getCliEnv = (): CliEnv => ({
   ...getBaseEnv(),
 
+  // Windows system paths
+  SystemRoot: process.env.SystemRoot,
+
   // Display server detection (Linux headless check)
   DISPLAY: process.env.DISPLAY,
   WAYLAND_DISPLAY: process.env.WAYLAND_DISPLAY,
@@ -75,7 +78,9 @@ export const getCliEnv = (): CliEnv => ({
   CODEBUFF_SCROLL_MULTIPLIER: process.env.CODEBUFF_SCROLL_MULTIPLIER,
   CODEBUFF_PERF_TEST: process.env.CODEBUFF_PERF_TEST,
   CODEBUFF_TRACE: process.env.CODEBUFF_TRACE,
+  CODEBUFF_LAUNCHER_PID: process.env.CODEBUFF_LAUNCHER_PID,
   CODEBUFF_SHIP_LOGS: process.env.CODEBUFF_SHIP_LOGS,
+  CODEBUFF_NO_TERMINAL_WATCHDOG: process.env.CODEBUFF_NO_TERMINAL_WATCHDOG,
   FREEBUFF_MODE: process.env.FREEBUFF_MODE,
 })
 

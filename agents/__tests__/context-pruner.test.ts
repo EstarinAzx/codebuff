@@ -220,6 +220,8 @@ describe('context-pruner handleSteps', () => {
     contextTokenCount?: number,
     maxContextLength?: number,
     budgets?: { assistantToolBudget?: number; userBudget?: number },
+    infoLogs?: Array<{ data: unknown; message?: string }>,
+    throwOnInfo = false,
   ) => {
     mockAgentState.messageHistory = messages
     // If contextTokenCount not provided, estimate from messages
@@ -227,7 +229,10 @@ describe('context-pruner handleSteps', () => {
       contextTokenCount ?? Math.ceil(JSON.stringify(messages).length / 3)
     const mockLogger = {
       debug: () => {},
-      info: () => {},
+      info: (data: unknown, message?: string) => {
+        if (throwOnInfo) throw new Error('logger unavailable')
+        infoLogs?.push({ data, message })
+      },
       warn: () => {},
       error: () => {},
     }
@@ -267,6 +272,37 @@ describe('context-pruner handleSteps', () => {
           messages,
         },
       }),
+    )
+  })
+
+  test('does not emit pruning telemetry when pruning is unnecessary', () => {
+    const infoLogs: Array<{ data: unknown; message?: string }> = []
+
+    runHandleSteps(
+      [createMessage('user', 'Hello')],
+      1_000,
+      200_000,
+      undefined,
+      infoLogs,
+    )
+
+    expect(infoLogs).toEqual([])
+  })
+
+  test('still prunes when telemetry logging throws', () => {
+    const results = runHandleSteps(
+      [createMessage('user', 'Keep this request')],
+      250_000,
+      200_000,
+      undefined,
+      undefined,
+      true,
+    )
+
+    expect(results).toHaveLength(1)
+    expect(results[0].toolName).toBe('set_messages')
+    expect(results[0].input.messages[0].content[0].text).toContain(
+      'Keep this request',
     )
   })
 
@@ -518,7 +554,14 @@ describe('context-pruner handleSteps', () => {
       prunerParamsPrompt,
     ]
 
-    const results = runHandleSteps(messages, 250000, 200000)
+    const infoLogs: Array<{ data: any; message?: string }> = []
+    const results = runHandleSteps(
+      messages,
+      250000,
+      200000,
+      undefined,
+      infoLogs,
+    )
     const resultMessages = results[0].input.messages
 
     expect(resultMessages).toHaveLength(2)
@@ -533,6 +576,23 @@ describe('context-pruner handleSteps', () => {
       }),
     )
     expect((resultMessages[1].content[0] as { text: string }).text).toBe(
+      'LATEST LIVE REQUEST',
+    )
+    expect(infoLogs).toHaveLength(1)
+    expect(infoLogs[0]).toEqual({
+      message: 'Context pruning completed',
+      data: expect.objectContaining({
+        axiomEvent: 'context_pruning.completed',
+        trigger_reason: 'context_limit',
+        context_token_count: 250000,
+        max_context_length: 200000,
+        live_user_prompt_found: true,
+        live_user_prompt_text_preserved: true,
+        mid_turn: false,
+        dropped_user_entry_count: 0,
+      }),
+    })
+    expect(JSON.stringify(infoLogs[0].data)).not.toContain(
       'LATEST LIVE REQUEST',
     )
   })
@@ -576,6 +636,40 @@ describe('context-pruner handleSteps', () => {
       .text
     expect(continuationText).toContain('Continue the existing assistant turn')
     expect(continuationText).toContain('Do not restart completed work')
+  })
+
+  test('telemetry reports a mid-turn live prompt that exceeds the user budget', () => {
+    const liveUserPrompt: Message = {
+      role: 'user',
+      content: [{ type: 'text', text: 'OVERSIZED LIVE REQUEST' }],
+      tags: ['USER_PROMPT'],
+    }
+    const prunerParamsPrompt: Message = {
+      role: 'user',
+      content: [{ type: 'text', text: '{"maxContextLength":200000}' }],
+      tags: ['USER_PROMPT'],
+    }
+    const infoLogs: Array<{ data: any; message?: string }> = []
+
+    runHandleSteps(
+      [
+        liveUserPrompt,
+        createMessage('assistant', 'Work in progress'),
+        prunerParamsPrompt,
+      ],
+      250000,
+      200000,
+      { userBudget: 1, assistantToolBudget: 1000 },
+      infoLogs,
+    )
+
+    expect(infoLogs[0].data).toEqual(
+      expect.objectContaining({
+        live_user_prompt_found: true,
+        live_user_prompt_text_preserved: false,
+        dropped_user_entry_count: 1,
+      }),
+    )
   })
 
   test('handles empty message history', () => {
@@ -891,9 +985,7 @@ describe('context-pruner code_search with flags', () => {
     const results = runHandleSteps(messages)
     const content = results[0].input.messages[0].content[0].text
 
-    expect(content).toContain(
-      'code search for "myFunction" (-g *.ts -i)',
-    )
+    expect(content).toContain('code search for "myFunction" (-g *.ts -i)')
   })
 })
 
@@ -1274,7 +1366,7 @@ First assistant response
     expect(summaryTagCount).toBe(1)
   })
 
-  test('drops old entries each cycle when budgets are tight', () => {
+  test('drops old entries independently by role across compaction cycles', () => {
     const simulateCompaction = (
       inputMessages: Message[],
       budgets: { assistantToolBudget: number; userBudget: number },
@@ -1285,7 +1377,7 @@ First assistant response
 
     const tightBudgets = { assistantToolBudget: 25, userBudget: 25 }
 
-    // === CYCLE 1: 3 pairs of messages, tight budgets drop the oldest ===
+    // === CYCLE 1: assistant budget fills before the user budget ===
     const cycle1Messages = [
       createMessage('user', 'Cycle1-Request-A'),
       createMessage('assistant', 'Cycle1-Response-A'),
@@ -1301,8 +1393,8 @@ First assistant response
     // Most recent entries should survive
     expect(summary1Text).toContain('Cycle1-Request-C')
     expect(summary1Text).toContain('Cycle1-Response-C')
-    // Oldest entries should be dropped
-    expect(summary1Text).not.toContain('Cycle1-Request-A')
+    // The oldest assistant response is dropped without evicting its user prompt
+    expect(summary1Text).toContain('Cycle1-Request-A')
     expect(summary1Text).not.toContain('Cycle1-Response-A')
 
     // === CYCLE 2: Add new messages, compact again ===
@@ -1318,7 +1410,7 @@ First assistant response
     // Newest entries from cycle 2 should survive
     expect(summary2Text).toContain('Cycle2-Request-D')
     expect(summary2Text).toContain('Cycle2-Response-D')
-    // Cycle 1's oldest survivors should now be dropped
+    // Each role continues to retain its most recent entries independently
     expect(summary2Text).not.toContain('Cycle1-Request-A')
     expect(summary2Text).not.toContain('Cycle1-Response-A')
 
@@ -1855,9 +1947,7 @@ describe('context-pruner glob and list_directory tools', () => {
     const results = runHandleSteps(messages)
     const content = results[0].input.messages[0].content[0].text
 
-    expect(content).toContain(
-      'inspected subtrees: src/components, src/utils',
-    )
+    expect(content).toContain('inspected subtrees: src/components, src/utils')
   })
 })
 
@@ -1985,6 +2075,69 @@ describe('context-pruner dual-budget behavior', () => {
     // Recent messages should be in the summary
     expect(content).toContain('Recent short question')
     expect(content).toContain('Recent short answer')
+  })
+
+  test('keeps older user prompts when assistant+tool budget is exhausted', () => {
+    const importantUserPrompt =
+      'SSH connection: host=prod.example, user=deploy, key=~/.ssh/prod'
+    const messages = [
+      createMessage('user', importantUserPrompt),
+      createMessage('assistant', 'A'.repeat(600)), // ~200 tokens
+      createMessage('user', 'Recent short question'),
+      createMessage('assistant', 'Recent short answer'),
+    ]
+
+    // The older assistant response exceeds the remaining assistant budget,
+    // but both user prompts easily fit within their independent budget.
+    const results = runHandleSteps(messages, 250000, 200000, {
+      assistantToolBudget: 100,
+      userBudget: 5000,
+    })
+
+    const resultMessages = results[0].input.messages
+    expect(resultMessages).toHaveLength(1)
+
+    const content = (resultMessages[0].content[0] as { text: string }).text
+    expect(content).toContain(importantUserPrompt)
+    expect(content).toContain('Recent short question')
+    expect(content).toContain('Recent short answer')
+    expect(content).not.toContain('A'.repeat(600))
+  })
+
+  test('always keeps the newest entry when it alone exceeds its role budget', () => {
+    const newestAssistant = 'LATEST_ASSISTANT_' + 'A'.repeat(600)
+    const assistantResults = runHandleSteps(
+      [
+        createMessage('user', 'Older user prompt'),
+        createMessage('assistant', newestAssistant),
+      ],
+      250000,
+      200000,
+      { assistantToolBudget: 100, userBudget: 5000 },
+    )
+    const assistantSummary = (
+      assistantResults[0].input.messages[0].content[0] as { text: string }
+    ).text
+
+    expect(assistantSummary).toContain('Older user prompt')
+    expect(assistantSummary).toContain(newestAssistant)
+
+    const newestUser = 'LATEST_USER_' + 'U'.repeat(600)
+    const userResults = runHandleSteps(
+      [
+        createMessage('assistant', 'Older assistant response'),
+        createMessage('user', newestUser),
+      ],
+      250000,
+      200000,
+      { assistantToolBudget: 5000, userBudget: 100 },
+    )
+    const userSummary = (
+      userResults[0].input.messages[0].content[0] as { text: string }
+    ).text
+
+    expect(userSummary).toContain('Older assistant response')
+    expect(userSummary).toContain(newestUser)
   })
 
   test('drops tool entries beyond budget at the cutoff boundary', () => {
@@ -2183,7 +2336,7 @@ describe('context-pruner dual-budget behavior', () => {
     expect(content).not.toContain(largeUserContent)
   })
 
-  test('drops old summary entries individually based on budget walk', () => {
+  test('applies old summary entry budgets independently by role', () => {
     // Previous summary with identifiable oldest and middle entries
     const previousSummary: Message = {
       role: 'user',
@@ -2201,7 +2354,8 @@ describe('context-pruner dual-budget behavior', () => {
       createMessage('assistant', 'Recent response'),
     ]
 
-    // Budget large enough for middle + recent entries but not oldest
+    // The assistant budget is large enough for middle + recent entries but not
+    // the oldest assistant entry. All user entries fit their own budget.
     const results = runHandleSteps(messages, 250000, 200000, {
       assistantToolBudget: 25,
       userBudget: 25,
@@ -2216,8 +2370,8 @@ describe('context-pruner dual-budget behavior', () => {
     expect(content).toContain('MIDDLE_ASSISTANT_ENTRY')
     expect(content).toContain('Recent request')
     expect(content).toContain('Recent response')
-    // Oldest entries should be dropped
-    expect(content).not.toContain('OLDEST_USER_ENTRY')
+    // Assistant overflow must not evict the oldest user entry
+    expect(content).toContain('OLDEST_USER_ENTRY')
     expect(content).not.toContain('OLDEST_ASSISTANT_ENTRY')
   })
 
@@ -2355,9 +2509,7 @@ describe('context-pruner dual-budget behavior', () => {
     expect(content).not.toContain('_LONG_ASST_MIDDLE_MARKER_') // Middle marker falls in truncated gap
 
     // === Tool call summaries present ===
-    expect(content).toContain(
-      'inspected files: src/model.ts, src/service.ts',
-    )
+    expect(content).toContain('inspected files: src/model.ts, src/service.ts')
     expect(content).toContain('edited file: src/model.ts')
     expect(content).toContain('delegated agents:')
 
@@ -2386,7 +2538,7 @@ describe('context-pruner dual-budget behavior', () => {
       content: [
         {
           type: 'text',
-          text: `<conversation_summary>\nThis is a summary of the conversation so far. The original messages have been condensed to save context space.\n\n[USER]\nOLD_DROPPED_USER: ${'X'.repeat(600)}\n\n---\n\n[ASSISTANT]\nOLD_DROPPED_ASSISTANT: ${'Y'.repeat(600)}\n\n---\n\n[USER]\nOLD_DROPPED_USER_2: Asked about deployment\n\n---\n\n[ASSISTANT]\nOLD_DROPPED_ASSISTANT_2: ${'Explained deployment process. '.repeat(80)}\n</conversation_summary>`,
+          text: `<conversation_summary>\nThis is a summary of the conversation so far. The original messages have been condensed to save context space.\n\n[USER]\nOLD_DROPPED_USER: ${'X'.repeat(600)}\n\n---\n\n[ASSISTANT]\nOLD_DROPPED_ASSISTANT: ${'Y'.repeat(600)}\n\n---\n\n[USER]\nOLD_RETAINED_USER_2: Asked about deployment\n\n---\n\n[ASSISTANT]\nOLD_DROPPED_ASSISTANT_2: ${'Explained deployment process. '.repeat(80)}\n</conversation_summary>`,
         },
       ],
     }
@@ -2448,10 +2600,10 @@ describe('context-pruner dual-budget behavior', () => {
     expect(content).toContain('SURVIVED_FINAL_USER')
     expect(content).toContain('SURVIVED_FINAL_ASSISTANT')
 
-    // === Old summary entries dropped by budget walk ===
+    // === Old summary entries are budgeted independently by role ===
     expect(content).not.toContain('OLD_DROPPED_USER:')
     expect(content).not.toContain('OLD_DROPPED_ASSISTANT:')
-    expect(content).not.toContain('OLD_DROPPED_USER_2:')
+    expect(content).toContain('OLD_RETAINED_USER_2:')
     expect(content).not.toContain('OLD_DROPPED_ASSISTANT_2:')
   })
 
@@ -2488,5 +2640,60 @@ describe('context-pruner dual-budget behavior', () => {
     // New messages should also be included
     expect(content).toContain('New request about feature B')
     expect(content).toContain('Working on feature B')
+  })
+})
+
+describe('context-pruner cacheExpiryMinTokens floor', () => {
+  const MINUTE = 60 * 1000
+  /** Resumes 16 minutes after the last answer; the trailing pair is the
+   *  pruner's own spawn artifacts, which its STEP 0 strips. */
+  const resumed: Message[] = [
+    {
+      role: 'assistant',
+      content: [{ type: 'text', text: 'done for now' }],
+      sentAt: 1_000_000,
+    },
+    {
+      role: 'user',
+      content: [{ type: 'text', text: 'back' }],
+      tags: ['USER_PROMPT'],
+      sentAt: 1_000_000 + 16 * MINUTE,
+    },
+    {
+      role: 'user',
+      content: [{ type: 'text', text: '<user_message>{}</user_message>' }],
+      tags: ['USER_PROMPT'],
+      sentAt: 1,
+    },
+    {
+      role: 'user',
+      content: [{ type: 'text', text: 'PRUNER INSTRUCTIONS' }],
+      tags: ['INSTRUCTIONS_PROMPT'],
+      sentAt: 1,
+    },
+  ]
+  const prunes = (contextTokenCount: number) => {
+    const generator = contextPruner.handleSteps!({
+      agentState: createMockAgentState(resumed, contextTokenCount),
+      params: {
+        maxContextLength: 400_000,
+        cacheExpiryMs: 15 * MINUTE,
+        cacheExpiryMinTokens: 40_000,
+      },
+      logger: { debug() {}, info() {}, warn() {}, error() {} },
+    } as any)
+    let messages: Message[] = []
+    for (let r = generator.next(); !r.done; r = generator.next() as any) {
+      if ((r.value as any)?.toolName === 'set_messages')
+        messages = (r.value as any).input.messages
+    }
+    return JSON.stringify(messages[0].content).includes(
+      '<conversation_summary>',
+    )
+  }
+
+  test('prunes on a cold cache only once the context clears the floor', () => {
+    expect(prunes(60_000)).toBe(true)
+    expect(prunes(20_000)).toBe(false)
   })
 })

@@ -1,6 +1,6 @@
 {
   "name": "codebuff",
-  "version": "1.0.683",
+  "version": "1.0.688",
   "description": "AI coding agent",
   "license": "MIT",
   "bin": {
@@ -8,13 +8,13 @@
     "cb": "index.js"
   },
   "scripts": {
-    "postinstall": "node postinstall.js",
-    "preuninstall": "node -e \"const fs = require('fs'); const path = require('path'); const os = require('os'); const binaryPath = path.join(os.homedir(), '.config', 'manicode', process.platform === 'win32' ? 'codebuff.exe' : 'codebuff'); try { fs.unlinkSync(binaryPath) } catch (e) { /* ignore if file doesn't exist */ }\""
+    "prepack": "node ../release-core/prepare-package.js",
+    "postpack": "node ../release-core/prepare-package.js --clean"
   },
   "files": [
     "index.js",
+    "launcher.js",
     "http.js",
-    "postinstall.js",
     "README.md"
   ],
   "os": [

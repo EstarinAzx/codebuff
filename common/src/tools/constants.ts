@@ -18,6 +18,7 @@ export const TOOLS_WHICH_WONT_FORCE_NEXT_STEP = [
   'create_plan',
   'render_ui',
   'suggest_followups',
+  'suggest_prompts',
   'task_completed',
 ]
 
@@ -29,6 +30,7 @@ export const toolNames = [
   'ask_user',
   'browser_logs',
   'code_search',
+  'cloud_plan_ready',
   'create_plan',
   'end_turn',
   'find_files',
@@ -66,6 +68,7 @@ export const publishedTools = [
   'add_message',
   'ask_user',
   'code_search',
+  'cloud_plan_ready',
   'end_turn',
   'find_files',
   'glob',

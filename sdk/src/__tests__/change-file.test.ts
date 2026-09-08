@@ -1,5 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 
+import type { Stats } from 'node:fs'
+
 import { createMockFs } from '@codebuff/common/testing/mocks/filesystem'
 
 import { changeFile } from '../tools/change-file'
@@ -94,6 +96,59 @@ describe('changeFile', () => {
     )
   })
 
+  test('does not recreate an existing parent directory', async () => {
+    const fs = createMockFs({
+      directories: { '/repo/src': [] },
+      mkdirImpl: async () => {
+        throw Object.assign(new Error('EEXIST'), { code: 'EEXIST' })
+      },
+    })
+
+    const result = await changeFile({
+      parameters: {
+        type: 'file',
+        path: 'src/file.ts',
+        content: 'const value = 1\n',
+      },
+      cwd: '/repo',
+      fs,
+    })
+
+    expect(result[0]?.value).toMatchObject({
+      message: 'Created file successfully.',
+    })
+    expect(fs.mkdir).not.toHaveBeenCalled()
+  })
+
+  test('recovers when mkdir reports EEXIST before the parent becomes visible', async () => {
+    let parentChecks = 0
+    const fs = createMockFs({
+      statImpl: async (path) => {
+        if (path !== '/repo/src' || ++parentChecks < 3)
+          throw new Error('not visible yet')
+        return { isDirectory: () => true } as Stats
+      },
+      mkdirImpl: async () => {
+        throw Object.assign(new Error('EEXIST'), { code: 'EEXIST' })
+      },
+    })
+
+    const result = await changeFile({
+      parameters: {
+        type: 'file',
+        path: 'src/file.ts',
+        content: 'const value = 1\n',
+      },
+      cwd: '/repo',
+      fs,
+    })
+
+    expect(result[0]?.value).toMatchObject({
+      message: 'Created file successfully.',
+    })
+    expect(fs.mkdir).toHaveBeenCalledTimes(1)
+  })
+
   test('tolerates absolute paths inside the project for file writes', async () => {
     const fs = createMockFs()
 
@@ -177,19 +232,30 @@ describe('changeFile', () => {
     )
   })
 
-  test('rejects absolute paths outside the project', async () => {
+  test('writes absolute paths outside the project', async () => {
     const fs = createMockFs()
 
-    await expect(
-      changeFile({
-        parameters: {
-          type: 'file',
-          path: '/outside/file.ts',
-          content: 'const value = 1\n',
+    const result = await changeFile({
+      parameters: {
+        type: 'file',
+        path: '/outside/file.ts',
+        content: 'const value = 1\n',
+      },
+      cwd: '/repo',
+      fs,
+    })
+
+    expect(result).toEqual([
+      {
+        type: 'json',
+        value: {
+          file: '/outside/file.ts',
+          message: 'Created file successfully.',
         },
-        cwd: '/repo',
-        fs,
-      }),
-    ).rejects.toThrow('file path is outside the project directory')
+      },
+    ])
+    expect(await fs.readFile('/outside/file.ts', 'utf-8')).toBe(
+      'const value = 1\n',
+    )
   })
 })

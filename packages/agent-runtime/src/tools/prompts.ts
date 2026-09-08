@@ -1,5 +1,8 @@
 import { endsAgentStepParam } from '@codebuff/common/tools/constants'
 import { toolParams } from '@codebuff/common/tools/list'
+import { codeSearchDisplayVariants } from '@codebuff/common/tools/params/tool/code-search'
+import { readFilesDisplayVariants } from '@codebuff/common/tools/params/tool/read-files'
+import { runTerminalCommandNoAttributionDescription } from '@codebuff/common/tools/params/tool/run-terminal-command'
 import { AVAILABLE_SKILLS_PLACEHOLDER } from '@codebuff/common/tools/params/tool/skill'
 import { getToolCallString } from '@codebuff/common/tools/utils'
 import { buildArray } from '@codebuff/common/util/array'
@@ -346,20 +349,56 @@ ${toolDescriptionsList.join('\n\n')}
 `.trim()
 }
 
+const readStyleDisplayVariants: Partial<
+  Record<ToolName, { legacy: DisplayVariant; windowed: DisplayVariant }>
+> = {
+  read_files: readFilesDisplayVariants,
+  code_search: codeSearchDisplayVariants,
+}
+
+type DisplayVariant = { description: string; inputSchema: z.ZodType }
+
 export async function getToolSet(params: {
   toolNames: string[]
+  windowedFileReads: boolean
+  /**
+   * Serve the `run_terminal_command` description that teaches NO commit
+   * trailer. Off by default, so an ordinary run is byte-identical.
+   */
+  suppressCommitAttribution?: boolean
   additionalToolDefinitions: () => Promise<CustomToolDefinitions>
   agentTools: ToolSet
   skills: SkillsMap
 }): Promise<ToolSet> {
-  const { toolNames, additionalToolDefinitions, agentTools, skills } = params
+  const {
+    toolNames,
+    windowedFileReads,
+    suppressCommitAttribution,
+    additionalToolDefinitions,
+    agentTools,
+    skills,
+  } = params
 
   // Generate available skills XML for the skill tool description
   const availableSkillsXml = formatAvailableSkillsXml(skills)
   const toolSet: ToolSet = {}
   for (const toolName of toolNames) {
     if (toolName in toolParams) {
-      const toolDef = toolParams[toolName as ToolName]
+      const baseToolDef = toolParams[toolName as ToolName]
+      const displayVariants = readStyleDisplayVariants[toolName as ToolName]
+      const toolDef = displayVariants
+        ? {
+            ...baseToolDef,
+            ...(windowedFileReads
+              ? displayVariants.windowed
+              : displayVariants.legacy),
+          }
+        : toolName === 'run_terminal_command' && suppressCommitAttribution
+          ? {
+              ...baseToolDef,
+              description: runTerminalCommandNoAttributionDescription,
+            }
+          : baseToolDef
 
       // For the skill tool, replace the placeholder with actual available skills
       if (toolName === 'skill' && availableSkillsXml) {

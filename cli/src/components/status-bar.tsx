@@ -1,4 +1,8 @@
-import { getFreebuffModel } from '@codebuff/common/constants/freebuff-models'
+import {
+  FREEBUFF_DEFAULT_CONTEXT_WINDOW,
+  FREEBUFF_MODEL_CONTEXT_WINDOWS,
+  getFreebuffModel,
+} from '@codebuff/common/constants/freebuff-models'
 import { TextAttributes } from '@opentui/core'
 import React, { useEffect, useState } from 'react'
 
@@ -8,7 +12,10 @@ import { ShimmerText } from './shimmer-text'
 
 import { useFreebuffSessionProgress } from '../hooks/use-freebuff-session-progress'
 import { useTheme } from '../hooks/use-theme'
+import { useChatStore } from '../state/chat-store'
+import { freebucksOf } from '../utils/freebucks'
 import { formatElapsedTime } from '../utils/format-elapsed-time'
+import { formatContextUsage } from '../utils/format-token-count'
 import {
   FREEBUFF_COUNTDOWN_VISIBLE_MS,
   formatFreebuffSessionCountdown,
@@ -107,8 +114,36 @@ export const StatusBar = ({
   }, [timerStartTime, shouldShowTimer, statusIndicatorState?.kind])
 
   const sessionProgress = useFreebuffSessionProgress(freebuffSession)
+  // A metered session is NOT unlimited, and the absence of `rateLimit` is no
+  // longer evidence that it is: a Freebucks row carries no pool row at all, so
+  // the old test reported "unlimited" for the one kind of session that was
+  // actually bought. It still means unlimited off the meter, where an unpriced
+  // row genuinely has no ceiling.
   const isUnlimited =
-    freebuffSession?.status === 'active' && !freebuffSession.rateLimit
+    freebuffSession?.status === 'active' &&
+    !freebuffSession.rateLimit &&
+    freebucksOf(freebuffSession) === undefined
+
+  // Context occupancy of the main agent only: subagent states never land in
+  // mainAgentState, so their tokens are excluded by construction. The store's
+  // runState is written at end of turn, which is exactly when the idle branch
+  // below renders — no mid-turn staleness is visible.
+  const contextTokenCount = useChatStore(
+    // Fully optional-chained: runState can be restored from a JSON.parse of
+    // run-state.json with no shape validation, and a throwing selector would
+    // crash the whole TUI.
+    (state) =>
+      state.runState?.sessionState?.mainAgentState?.contextTokenCount,
+  )
+  const contextWindow =
+    freebuffSession?.status === 'active'
+      ? (FREEBUFF_MODEL_CONTEXT_WINDOWS[freebuffSession.model] ??
+        FREEBUFF_DEFAULT_CONTEXT_WINDOW)
+      : FREEBUFF_DEFAULT_CONTEXT_WINDOW
+  const contextUsage =
+    contextTokenCount !== undefined
+      ? formatContextUsage(contextTokenCount, contextWindow)
+      : null
 
   const renderStatusIndicator = () => {
     switch (statusIndicatorState.kind) {
@@ -130,6 +165,14 @@ export const StatusBar = ({
 
       case 'retrying':
         return <ShimmerText text="retrying..." primaryColor={theme.warning} />
+
+      case 'capacityWait':
+        return (
+          <ShimmerText
+            text="high demand — in line, starting soon..."
+            primaryColor={theme.warning}
+          />
+        )
 
       case 'connecting':
         return <ShimmerText text="connecting..." />
@@ -163,6 +206,13 @@ export const StatusBar = ({
             freebuffSession?.status === 'active'
               ? getFreebuffModel(freebuffSession.model).displayName
               : null
+          // One template string on purpose: conditional text-node children
+          // inside a <span> trip OpenTUI's reconciler (see knowledge.md).
+          const idleLabel = `${modelName ? `${modelName} · ` : ''}${
+            isUnlimited
+              ? 'unlimited'
+              : formatFreebuffSessionRemaining(sessionProgress.remainingMs)
+          }${contextUsage ? ` · ${contextUsage}` : ''}`
           return (
             <span
               fg={
@@ -173,10 +223,7 @@ export const StatusBar = ({
                     : theme.secondary
               }
             >
-              {modelName ? `${modelName} · ` : ''}
-              {isUnlimited
-                ? 'unlimited'
-                : formatFreebuffSessionRemaining(sessionProgress.remainingMs)}
+              {idleLabel}
             </span>
           )
         }

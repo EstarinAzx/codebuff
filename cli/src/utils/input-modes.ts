@@ -12,10 +12,10 @@ export type InputMode =
   | 'plan'
   | 'review'
   | 'interview'
+  | 'skill'
   | 'usage'
   | 'image'
   | 'help'
-  | 'connect:chatgpt'
   | 'outOfCredits'
   | 'subscriptionLimit'
 
@@ -91,6 +91,18 @@ export const INPUT_MODE_CONFIGS: Record<InputMode, InputModeConfig> = {
     disableSlashSuggestions: true,
     blockKeyboardExit: false,
   },
+  skill: {
+    icon: null,
+    // Label is replaced with the pending skill's name at render time
+    // (chat-input-bar), so the mode banner names what is about to run.
+    label: 'Skill',
+    color: 'info',
+    placeholder: 'add instructions for this skill, or press Enter to run it as-is...',
+    widthAdjustment: 8,
+    showAgentModeToggle: false,
+    disableSlashSuggestions: true,
+    blockKeyboardExit: false,
+  },
   plan: {
     icon: null,
     label: 'Plan',
@@ -139,16 +151,6 @@ export const INPUT_MODE_CONFIGS: Record<InputMode, InputModeConfig> = {
     widthAdjustment: 0,
     showAgentModeToggle: true,
     disableSlashSuggestions: false,
-    blockKeyboardExit: false,
-  },
-  'connect:chatgpt': {
-    icon: '🔐',
-    label: null,
-    color: 'info',
-    placeholder: 'authorizing in browser... press Escape to cancel',
-    widthAdjustment: 3,
-    showAgentModeToggle: false,
-    disableSlashSuggestions: true,
     blockKeyboardExit: false,
   },
   outOfCredits: {

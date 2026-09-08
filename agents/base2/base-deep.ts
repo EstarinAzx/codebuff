@@ -1,6 +1,6 @@
 import { buildArray } from '@codebuff/common/util/array'
 
-import { publisher } from '../constants'
+import { FOLLOWUP_STYLE_GUIDANCE, publisher } from '../constants'
 import {
   PLACEHOLDER,
   type SecretAgentDefinition,
@@ -238,7 +238,7 @@ Capture learnings for future sessions:
    b. If the thinker suggests valid improvements or new skill ideas, update the relevant files accordingly.
    c. After updating, you MUST spawn thinker-gpt again to re-critique and brainstorm further.
    d. Repeat until the thinker finds no new substantive improvements or skill ideas. Do NOT skip the re-critique — every revision must be verified.`}${noAskUser ? '' : `
-${noLearning ? '1' : '4'}. Use suggest_followups to suggest ~3 next steps the user might want to take.`}
+${noLearning ? '1' : '4'}. Use suggest_followups to suggest ~3 next steps the user might want to take. ${FOLLOWUP_STYLE_GUIDANCE}`}
 
 Make sure to narrate to the user what you are doing and why you are doing it as you go along. Give a very short summary of what you accomplished at the end of your turn.
 
@@ -306,27 +306,19 @@ export function createBaseDeep(options?: {
     ],
     systemPrompt: buildDeepSystemPrompt(noAskUser, noLearning),
     instructionsPrompt: buildDeepInstructionsPrompt(noAskUser, noLearning),
-    stepPrompt: `Workflow phases reminder (${noLearning ? 6 : 7} phases):
-
-**Planning todos** (write at start): Phase 1 → Phase 2 → Phase 3
-1. Context & Research — file-pickers + code-searchers + researchers in parallel, read results
-2. Spec — draft SPEC.md, ${noAskUser ? '' : 'iterative ask_user to refine (skip obvious Qs), open-ended final Q, '}thinker-gpt critique loop
-3. Plan — write PLAN.md, thinker-gpt critique loop
-
-**Implementation todos** (write after Plan): one todo per plan step + phases 5-${noLearning ? '6' : '7'}
-4. Implement — fully build the spec using file editing tools
-5. Review Loop — code-reviewer-gpt → fix → re-review until clean
-6. Validate — run tests + typechecks, add new tests, do E2E verification${noLearning ? '' : `
-7. Lessons — write LESSONS.md, update/create skills, iterative thinker-gpt brainstorm loop`}`,
     handleSteps: function* ({ params }) {
       while (true) {
-        // Run context-pruner before each step.
+        // Run context-pruner before each step. cacheExpiryMs is baked to 30
+        // minutes: the 5-minute default forces a full lossy re-summarization
+        // after any short idle even when the context is nowhere near its limit.
         yield {
           toolName: 'spawn_agent_inline',
           input: {
             agent_type: 'context-pruner',
-            params: params ?? {
+            params: {
               maxContextLength: 400_000,
+              ...(params ?? {}),
+              cacheExpiryMs: 30 * 60 * 1000,
             },
           },
           includeToolCall: false,

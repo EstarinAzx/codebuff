@@ -1,3 +1,5 @@
+import { compactionPolicyForModel } from '@codebuff/common/constants/compaction-policy'
+import { contextPrunerBudgetForModel } from '@codebuff/common/constants/model-config'
 import { HandleStepsYieldValueSchema } from '@codebuff/common/types/agent-template'
 import { getErrorObject } from '@codebuff/common/util/error'
 import { assistantMessage } from '@codebuff/common/util/messages'
@@ -91,6 +93,7 @@ export async function runProgrammaticStep(
     | 'toolName'
     | 'input'
     | 'autoInsertEndStepParam'
+    | 'currentAssistantMessages'
     | 'excludeToolFromMessageHistory'
     | 'agentContext'
     | 'agentStepId'
@@ -190,6 +193,12 @@ export async function runProgrammaticStep(
       agentState,
       prompt,
       params: toolCallParams,
+      model: template.model,
+      // Serialized generators cannot import the per-model tables.
+      contextPruning: {
+        maxContextLength: contextPrunerBudgetForModel(template.model),
+        ...compactionPolicyForModel(template.model),
+      },
       logger: streamingLogger,
     })
     runIdToGenerator[agentState.runId] = generator
@@ -459,6 +468,7 @@ type ExecuteToolCallsArrayParams = Omit<
   | 'toolName'
   | 'input'
   | 'autoInsertEndStepParam'
+  | 'currentAssistantMessages'
   | 'excludeToolFromMessageHistory'
   | 'toolCallId'
   | 'toolCallsToAddToMessageHistory'

@@ -7,12 +7,15 @@ import path from 'path'
  * This checks both that tmux is installed AND that it can actually run
  * (e.g., the tmux server socket directory exists and is accessible).
  *
- * Note: Always returns false on CI since tmux integration tests require
- * a real interactive terminal environment.
+ * Returns false on CI unless CODEBUFF_RUN_TMUX_TESTS=1 explicitly opts into
+ * running deterministic tmux tests in a known terminal environment.
  */
 export function isTmuxAvailable(): boolean {
   // Skip on CI - tmux integration tests need a real terminal environment
-  if (process.env.CI === 'true' || process.env.CI === '1') {
+  if (
+    (process.env.CI === 'true' || process.env.CI === '1') &&
+    process.env.CODEBUFF_RUN_TMUX_TESTS !== '1'
+  ) {
     return false
   }
 
@@ -72,6 +75,7 @@ const TEST_SERVER_ENV_DEFAULTS: Record<string, string> = {
   ANTHROPIC_API_KEY: 'test',
   SERPER_API_KEY: 'test',
   GRAVITY_API_KEY: 'test',
+  GRAVITY_CAPI_KEY: 'test',
   PORT: '4242',
   DATABASE_URL: 'postgres://user:pass@localhost:5432/db',
   CODEBUFF_GITHUB_ID: 'test-id',

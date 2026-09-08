@@ -1,3 +1,5 @@
+import { compactionPolicyForModel } from '@codebuff/common/constants/compaction-policy'
+import { contextPrunerBudgetForModel } from '@codebuff/common/constants/model-config'
 import * as analytics from '@codebuff/common/analytics'
 import { TEST_USER_ID } from '@codebuff/common/old-constants'
 import { TEST_AGENT_RUNTIME_IMPL } from '@codebuff/common/testing/impl/agent-runtime'
@@ -50,7 +52,9 @@ describe('runProgrammaticStep', () => {
   let mockTemplate: AgentTemplate
   let mockAgentState: AgentState
   let mockParams: ParamsOf<typeof runProgrammaticStep>
-  let executeToolCallSpy: ReturnType<typeof spyOn<typeof toolExecutor, 'executeToolCall'>>
+  let executeToolCallSpy: ReturnType<
+    typeof spyOn<typeof toolExecutor, 'executeToolCall'>
+  >
   let agentRuntimeImpl: AgentRuntimeDeps & AgentRuntimeScopedDeps
 
   beforeEach(() => {
@@ -144,6 +148,71 @@ describe('runProgrammaticStep', () => {
     mock.restore()
     // Clear the generator cache between tests
     clearAgentGeneratorCache({ logger })
+  })
+
+  describe('step context', () => {
+    it('passes the template model to handleSteps', async () => {
+      // handleSteps is serialized with toString(), so a generator cannot close
+      // over request-time state. Callers that override a template's model per
+      // request (freebuff chat picks one per message) rely on reading it here
+      // — e.g. agents/base-chat.ts sizes its context-pruning budget to the
+      // selected model's window.
+      let seenModel: string | undefined = 'not-called'
+      mockTemplate.model = 'moonshotai/kimi-k2.7-code'
+      mockTemplate.handleSteps = ({ model }) => {
+        seenModel = model
+        return (function* () {
+          yield { toolName: 'end_turn', input: {} }
+        })() as StepGenerator
+      }
+
+      await runProgrammaticStep(mockParams)
+
+      expect(seenModel).toBe('moonshotai/kimi-k2.7-code')
+    })
+
+    it("passes the model's pruner thresholds to handleSteps", async () => {
+      // Serialized generators that spawn context-pruner (base2, base-chat)
+      // cannot import the budget or compaction tables; this is how the numbers
+      // reach them.
+      let seen: unknown = 'not-called'
+      mockTemplate.model = 'deepseek/deepseek-v4-flash'
+      mockTemplate.handleSteps = ({ contextPruning }) => {
+        seen = contextPruning
+        return (function* () {
+          yield { toolName: 'end_turn', input: {} }
+        })() as StepGenerator
+      }
+
+      await runProgrammaticStep(mockParams)
+
+      expect(seen).toEqual({
+        maxContextLength: contextPrunerBudgetForModel(
+          'deepseek/deepseek-v4-flash' as any,
+        ),
+        ...compactionPolicyForModel('deepseek/deepseek-v4-flash'),
+      })
+    })
+
+    it('reflects a per-request model override on the next run', async () => {
+      // The generator is cached per runId and rebuilt once a turn ends, so a
+      // model swapped between turns must be picked up rather than staying at
+      // the value captured on the first turn.
+      const seen: (string | undefined)[] = []
+      mockTemplate.handleSteps = ({ model }) => {
+        seen.push(model)
+        return (function* () {
+          yield { toolName: 'end_turn', input: {} }
+        })() as StepGenerator
+      }
+
+      mockTemplate.model = 'minimax/minimax-m3'
+      await runProgrammaticStep(mockParams)
+      mockTemplate.model = 'moonshotai/kimi-k2.7-code'
+      await runProgrammaticStep(mockParams)
+
+      expect(seen).toEqual(['minimax/minimax-m3', 'moonshotai/kimi-k2.7-code'])
+    })
   })
 
   describe('generator lifecycle', () => {
@@ -814,7 +883,10 @@ describe('runProgrammaticStep', () => {
       expect(result.endTurn).toBe(true)
       expect(result.agentState.output?.error).toContain('Generator error')
       expect(
-        responseChunks.some((chunk) => typeof chunk === 'string' && chunk.includes('Generator error')),
+        responseChunks.some(
+          (chunk) =>
+            typeof chunk === 'string' && chunk.includes('Generator error'),
+        ),
       ).toBe(true)
     })
 
@@ -888,7 +960,9 @@ describe('runProgrammaticStep', () => {
       const result = await runProgrammaticStep({
         ...mockParams,
         template: schemaTemplate as unknown as AgentTemplate,
-        localAgentTemplates: { 'test-agent': schemaTemplate as unknown as AgentTemplate },
+        localAgentTemplates: {
+          'test-agent': schemaTemplate as unknown as AgentTemplate,
+        },
       })
 
       expect(result.endTurn).toBe(true)
@@ -938,7 +1012,9 @@ describe('runProgrammaticStep', () => {
       const result = await runProgrammaticStep({
         ...mockParams,
         template: schemaTemplate as unknown as AgentTemplate,
-        localAgentTemplates: { 'test-agent': schemaTemplate as unknown as AgentTemplate },
+        localAgentTemplates: {
+          'test-agent': schemaTemplate as unknown as AgentTemplate,
+        },
       })
 
       // Should end turn (validation may fail but execution continues)

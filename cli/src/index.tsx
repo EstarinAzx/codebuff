@@ -37,10 +37,16 @@ import { IS_FREEBUFF } from './utils/constants'
 import { initializeAgentRegistry } from './utils/local-agent-registry'
 import { trimOversizedChatLogs } from './utils/chat-history'
 import { clearLogFile, logger } from './utils/logger'
+import { drainClientLogs } from './utils/log-shipper'
 import { shouldShowProjectPicker } from './utils/project-picker'
 import { saveRecentProject } from './utils/recent-projects'
 import { startEngagementTracking } from './utils/engagement'
-import { installProcessCleanupHandlers, TERMINAL_RESET_SEQUENCES } from './utils/renderer-cleanup'
+import {
+  exitCliWithFatalError,
+  installProcessCleanupHandlers,
+} from './utils/renderer-cleanup'
+import { startTerminalWatchdog } from './utils/terminal-watchdog'
+import { installTerminalProtocolController } from './utils/terminal-protocol-controller'
 import { initializeSkillRegistry } from './utils/skill-registry'
 import { detectTerminalTheme } from './utils/terminal-color-detection'
 import { setOscDetectedTheme } from './utils/theme-system'
@@ -52,7 +58,7 @@ import type { FileTreeNode } from '@codebuff/common/util/file'
 // Without this, refetchInterval won't work because TanStack Query thinks the app is "unfocused"
 focusManager.setEventListener(() => {
   // No-op: no event listeners in CLI environment (no window focus/visibility events)
-  return () => { }
+  return () => {}
 })
 focusManager.setFocused(true)
 
@@ -99,7 +105,9 @@ async function main(): Promise<void> {
     try {
       dirListing = fs.readdirSync(execDir)
     } catch (err) {
-      dirListing = [`<readdir failed: ${err instanceof Error ? err.message : err}>`]
+      dirListing = [
+        `<readdir failed: ${err instanceof Error ? err.message : err}>`,
+      ]
     }
     console.error(
       `[smoke diag] execPath=${process.execPath}\n` +
@@ -149,6 +157,36 @@ async function main(): Promise<void> {
       console.error('tree-sitter smoke FAIL:', err)
       process.exit(1)
     }
+  }
+
+  // Native-Windows release gate. The external harness starts the packaged
+  // binary inside winpty so this exercises a real console, OpenTUI renderer,
+  // console-free broker, Git Bash child, and SDK process lifecycle.
+  // Keep this before commander.parse(), which intentionally knows nothing
+  // about internal smoke-only flags.
+  const terminalBrokerSmokeIndex = process.argv.indexOf(
+    '--smoke-terminal-broker',
+  )
+  const endOfOptionsIndex = process.argv.indexOf('--')
+  const isTerminalBrokerSmoke =
+    terminalBrokerSmokeIndex !== -1 &&
+    (endOfOptionsIndex === -1 || terminalBrokerSmokeIndex < endOfOptionsIndex)
+  if (isTerminalBrokerSmoke) {
+    const resultPath = process.argv[terminalBrokerSmokeIndex + 1]
+    const exchangeDir = process.argv[terminalBrokerSmokeIndex + 2]
+    if (!resultPath || !exchangeDir) {
+      console.error(
+        'terminal broker smoke requires <result-path> <exchange-dir>',
+      )
+      process.exit(2)
+    }
+    const { runPackagedTerminalBrokerSmoke } =
+      await import('./smoke/terminal-command-broker')
+    const exitCode = await runPackagedTerminalBrokerSmoke({
+      resultPath,
+      exchangeDir,
+    })
+    process.exit(exitCode)
   }
 
   // Run OSC theme detection BEFORE anything else.
@@ -208,6 +246,13 @@ async function main(): Promise<void> {
     initialMode: initialMode ?? 'DEFAULT',
     isFreeBuff: IS_FREEBUFF,
   })
+  // Start shipping the launch row now, well before the Windows watchdog is
+  // armed. If endpoint security terminates this process during that spawn, the
+  // next --continue launch still has a prior row for the health dashboard's
+  // rapid-resume and interruption joins.
+  if (IS_FREEBUFF && process.platform === 'win32') {
+    void drainClientLogs()
+  }
 
   // Initialize agent registry (loads user agents via SDK).
   // When --agent is provided, skip local .agents to avoid overrides.
@@ -344,30 +389,17 @@ async function main(): Promise<void> {
   // Install early error handlers BEFORE renderer creation.
   // If the renderer crashes during init, these ensure the error is visible
   // by exiting the alternate screen buffer before printing the error.
-  const earlyFatalHandler = (error: unknown) => {
-    try {
-      if (process.stdin.isTTY && process.stdin.setRawMode) {
-        process.stdin.setRawMode(false)
-      }
-    } catch {
-      // stdin may be closed
-    }
-    try {
-      if (process.stdout.isTTY) {
-        process.stdout.write(TERMINAL_RESET_SEQUENCES)
-      }
-    } catch {
-      // stdout may be closed
-    }
-    try {
-      console.error('Fatal error during startup:', error)
-    } catch {
-      // stderr may be closed
-    }
-    process.exit(1)
-  }
+  const earlyFatalHandler = (error: unknown) =>
+    exitCliWithFatalError('Fatal error during startup', error)
   process.on('uncaughtException', earlyFatalHandler)
   process.on('unhandledRejection', earlyFatalHandler)
+
+  // Last line of defense for uncatchable deaths (SIGKILL, native crashes,
+  // kill sweeps that also take out the npm wrapper): a detached process
+  // (sh on POSIX, PowerShell on Windows) that resets the terminal when this
+  // process disappears. Started before the renderer begins enabling terminal
+  // modes; the clean-shutdown path (renderer-cleanup) disarms it.
+  startTerminalWatchdog()
 
   const renderer = await createCliRenderer({
     backgroundColor: 'transparent',
@@ -375,15 +407,21 @@ async function main(): Promise<void> {
     screenMode: 'alternate-screen',
   })
 
-  // Remove early handlers — proper cleanup handlers (with renderer access) take over
+  // Install the renderer-aware handlers before removing the startup safety net
+  // so an installation failure still restores the terminal and reports itself.
+  installProcessCleanupHandlers(renderer)
+  const terminalProtocols = installTerminalProtocolController(renderer, {
+    onError: (error) =>
+      logger.debug(error, 'Terminal protocol transition failed'),
+  })
+  renderer.once('destroy', () => terminalProtocols.dispose())
   process.removeListener('uncaughtException', earlyFatalHandler)
   process.removeListener('unhandledRejection', earlyFatalHandler)
-  installProcessCleanupHandlers(renderer)
 
   // Start the engaged-time heartbeat only once the interactive TUI is actually
   // live — reaching renderer creation means this is a real session (the
   // login/publish/smoke-test commands all exit earlier). Freebuff-only, matching
-  // the MESSAGE_SENT DAU signal. Stopped in exitFreebuffCleanly().
+  // the MESSAGE_SENT DAU signal. Stopped in exitCliCleanly().
   if (IS_FREEBUFF) {
     startEngagementTracking()
   }

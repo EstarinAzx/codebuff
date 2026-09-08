@@ -7,15 +7,15 @@
  * - Binary build configuration
  */
 
-import type {
-  BaseEnv,
-  ClientEnv,
-} from '@codebuff/common/types/contracts/env'
+import type { BaseEnv, ClientEnv } from '@codebuff/common/types/contracts/env'
 
 /**
  * CLI-specific env vars for terminal/IDE detection and editor preferences.
  */
 export type CliEnv = BaseEnv & {
+  // Windows system paths
+  SystemRoot?: string
+
   // Terminal detection (for tmux/screen passthrough)
   TERM?: string
   TMUX?: string
@@ -75,8 +75,12 @@ export type CliEnv = BaseEnv & {
   CODEBUFF_SCROLL_MULTIPLIER?: string
   CODEBUFF_PERF_TEST?: string
   CODEBUFF_TRACE?: string
+  CODEBUFF_LAUNCHER_PID?: string
   // Toggle for mirroring CLI logs to the server's /api/logs sink (Axiom).
   CODEBUFF_SHIP_LOGS?: string
+  // Set to 1/true to suppress the terminal-reset watchdog on machines where
+  // the PowerShell process shape conflicts with endpoint-security policy.
+  CODEBUFF_NO_TERMINAL_WATCHDOG?: string
   FREEBUFF_MODE?: string
 }
 

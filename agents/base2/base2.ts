@@ -3,32 +3,71 @@ import { COMPOSIO_META_TOOL_NAMES } from '@codebuff/common/constants/composio'
 import {
   FREEBUFF_GEMINI_THINKER_AGENT_ID,
   FREEBUFF_GEMINI_THINKER_INSTRUCTIONS_PROMPT,
-  FREEBUFF_GEMINI_THINKER_STEP_PROMPT,
   FREEBUFF_GEMINI_THINKER_SYSTEM_INSTRUCTION,
 } from '@codebuff/common/constants/freebuff-gemini-thinker'
 import { FREEBUFF_REVIEWER_AGENT_ID_BY_MODEL } from '@codebuff/common/constants/free-agents'
 import {
   canFreebuffModelSpawnGeminiThinker,
-  FREEBUFF_KIMI_MODEL_ID,
-  FREEBUFF_MINIMAX_MODEL_ID,
   FREEBUFF_MINIMAX_M3_MODEL_ID,
 } from '@codebuff/common/constants/freebuff-models'
 
-import { publisher } from '../constants'
+import {
+  FOLLOWUP_STYLE_GUIDANCE,
+  gravityIndexGuidance,
+  LITE_MODEL,
+  OPUS_MODEL,
+  publisher,
+  SKILL_DISCOVERY_GUIDANCE,
+} from '../constants'
 import {
   PLACEHOLDER,
   type SecretAgentDefinition,
 } from '../types/secret-agent-definition'
 
 const ENABLE_COMPOSIO_TOOLS = false
+/** base2 delegates deeper research to subagents; base3 has none, and carries
+ *  web_search/read_url itself. */
+const BASE2_DEEPER_RESEARCH =
+  ', and spawn other helpful agents like researcher-web and researcher-docs when you need more depth'
+const THINKER_SPAWN_LIMIT =
+  'Spawn at most one thinker agent per user request. Once a thinker has been spawned for the current request, do not spawn any thinker again.'
+
+type Base2Mode = 'default' | 'free' | 'lite' | 'max' | 'fast'
+
+/**
+ * Free mode runs MiniMax M3 (routed through the Fireworks AI API). New Freebuff
+ * clients select an explicit free variant from the model picker; the
+ * unqualified base2-free agent covers legacy callers.
+ */
+const MODEL_BY_MODE = {
+  default: OPUS_MODEL,
+  max: OPUS_MODEL,
+  fast: OPUS_MODEL,
+  lite: LITE_MODEL,
+  free: FREEBUFF_MINIMAX_M3_MODEL_ID,
+} satisfies Record<Base2Mode, SecretAgentDefinition['model']>
+
+/**
+ * The reviewer each lean model reviews with, per product. Codebuff adds lite's
+ * own reviewer on top of the shared ones; Freebuff deliberately gets only the
+ * free-tier map, so no free session can resolve to code-reviewer-lite even if a
+ * freebuff agent were pointed at lite's model. Anything unmapped falls back to
+ * DeepSeek Flash — cheap, and allowed in a free session.
+ */
+const CODEBUFF_REVIEWER_BY_MODEL: Record<string, string> = {
+  ...FREEBUFF_REVIEWER_AGENT_ID_BY_MODEL,
+  [LITE_MODEL]: 'code-reviewer-lite',
+}
+const FALLBACK_REVIEWER_AGENT_ID = 'code-reviewer-deepseek-flash'
 
 export function createBase2(
-  mode: 'default' | 'free' | 'lite' | 'max' | 'fast',
+  mode: Base2Mode,
   options?: {
     hasNoValidation?: boolean
     planOnly?: boolean
     noAskUser?: boolean
     noReview?: boolean
+    noGravityIndex?: boolean
     model?: SecretAgentDefinition['model']
     providerOptions?: SecretAgentDefinition['providerOptions']
   },
@@ -38,40 +77,105 @@ export function createBase2(
     planOnly = false,
     noAskUser = false,
     noReview = false,
+    noGravityIndex = false,
     model: modelOverride,
     providerOptions,
   } = options ?? {}
   const isDefault = mode === 'default'
   const isFast = mode === 'fast'
+  const isLite = mode === 'lite'
   const isMax = mode === 'max'
-  const isFree = mode === 'free' || mode === 'lite'
+  // Product identity and orchestration shape used to be one flag, which told
+  // paying lite users they were "coding with AI for free" on a product they
+  // weren't using. isFreebuff picks the branding and the meta-information
+  // block; isLean picks the stripped-down shape lite shares with free mode:
+  // direct edits, a cheap reviewer, no propose_* tools.
+  const isFreebuff = mode === 'free'
+  const isLean = mode === 'free' || mode === 'lite'
 
-  const isSonnet = false
-  // Lite mode runs MiniMax M3 (routed through the Fireworks AI API). The
-  // unqualified base2-free agent still uses MiniMax for legacy callers; new
-  // Freebuff clients select explicit free variants from the model picker.
-  const model =
-    modelOverride ??
-    (mode === 'lite'
-      ? FREEBUFF_MINIMAX_M3_MODEL_ID
-      : mode === 'free'
-        ? FREEBUFF_MINIMAX_MODEL_ID
-        : 'anthropic/claude-opus-4.8')
-  // Smart freebuff model variants (Kimi, DeepSeek) can offload deeper
-  // reasoning. Fast MiniMax omits the extra round trip by construction.
-  const hasFreeGeminiThinker =
-    isFree && canFreebuffModelSpawnGeminiThinker(model)
-  const freeCodeReviewerAgentId =
-    FREEBUFF_REVIEWER_AGENT_ID_BY_MODEL[model] ?? 'code-reviewer-lite'
-  const contextPrunerMaxContextLength =
-    getBase2ContextPrunerMaxContextLength(model)
-  const defaultProviderOptions = isFree
-    ? {
-        data_collection: 'deny' as const,
+  const model = modelOverride ?? MODEL_BY_MODE[mode]
+  // Both lean modes can offload deeper reasoning to the Gemini thinker, which
+  // is the only sanctioned way to reach Gemini Pro.
+  //
+  // Freebuff gates it on the parent model: that set is a free-session admission
+  // rule (see canFreebuffModelSpawnGeminiThinker and free-session/public-api),
+  // limiting which free picks may pull a premium model on an unbilled path.
+  // Lite is billed, so the completions gate leaves it alone and no such
+  // restriction applies.
+  const hasGeminiThinker =
+    isLite || (isFreebuff && canFreebuffModelSpawnGeminiThinker(model))
+  const leanCodeReviewerAgentId =
+    (isFreebuff
+      ? FREEBUFF_REVIEWER_AGENT_ID_BY_MODEL
+      : CODEBUFF_REVIEWER_BY_MODEL)[model] ?? FALLBACK_REVIEWER_AGENT_ID
+  const defaultProviderOptions = getBase2ProviderOptions(model)
+
+  // The worked example is the strongest instruction in this prompt, and in plan
+  // mode it used to end with "you implement the changes using the editor agent"
+  // and a summary of the changes made. A demonstration of building beats a
+  // paragraph saying not to, which is how a PLAN turn shipped and committed a
+  // whole feature. Plan mode gets its own ending.
+  const exampleTail = planOnly
+    ? `[ You have enough context. You write the plan, wrapped in <PLAN></PLAN> tags. ]
+
+[ You do NOT implement anything: no file edits, no editor agent, no basher, no terminal command, no commit. You tell the user the plan is ready and that they can switch out of plan mode to have it built. ]
+ </reponse>
+
+</example>
+
+<example>
+
+<user>just go ahead and build it</user>
+
+<response>
+[ You stay in plan mode. You explain that you are in plan mode, present or refine the plan, and tell the user to leave plan mode and re-send the request when they want it implemented. You do not start the work. ]
+</response>
+
+</example>`
+    : `${
+        isDefault
+          ? `[ You implement the changes using the editor agent ]`
+          : isFast || isLean
+            ? '[ You implement the changes using the str_replace or write_file tools ]'
+            : '[ You implement the changes using the editor-multi-prompt agent ]'
       }
-    : {
-        only: ['amazon-bedrock'],
-      }
+
+${
+  isDefault
+    ? `[ You spawn a code-reviewer, a basher to typecheck the changes, and another basher to run tests, all in parallel ]`
+    : isLean && !noReview
+      ? `[ You spawn a ${leanCodeReviewerAgentId} to review the changes, a basher to typecheck the local changes, a basher to typecheck the whole project, and another basher to run tests, all in parallel ]`
+      : isLean
+        ? `[ You spawn a basher to typecheck the local changes, a basher to typecheck the whole project, and another basher to run tests, all in parallel ]`
+        : isMax
+          ? `[  You spawn a basher to typecheck the changes, and another basher to run tests, in parallel. Then, you spawn a code-reviewer-multi-prompt to review the changes. ]`
+          : '[ You spawn a basher to typecheck the changes and another basher to run tests, all in parallel ]'
+}
+
+${
+  isDefault
+    ? `[ You fix the issues found by the code-reviewer and type/test errors ]`
+    : isLean && !noReview
+      ? `[ You fix the issues found by the ${leanCodeReviewerAgentId} and type/test errors ]`
+      : isMax
+        ? `[ You fix the issues found by the code-reviewer-multi-prompt and type/test errors ]`
+        : '[ You fix the issues found by the type/test errors and spawn more bashers to confirm ]'
+}
+
+[ All tests & typechecks pass -- you write a very short final summary of the changes you made ]
+ </reponse>
+
+</example>
+
+<example>
+
+<user>what's the best way to refactor [x]</user>
+
+<response>
+[ You collect codebase context, and then give a strong answer with key examples, and ask if you should make this change ]
+</response>
+
+</example>`
 
   return {
     publisher,
@@ -101,12 +205,16 @@ export function createBase2(
       'spawn_agents',
       'read_files',
       'read_subtree',
-      !isFast && 'write_todos',
+      !isFast && !planOnly && 'write_todos',
       !noAskUser && 'suggest_followups',
-      'str_replace',
-      'write_file',
-      !isFree && 'propose_str_replace',
-      !isFree && 'propose_write_file',
+      // Plan mode is enforced by the toolset, not only by the prompt. Prose
+      // alone lost: a user who picked PLAN got the whole feature built and
+      // committed, because every capability a build turn has was still here
+      // and the surrounding prompt still demonstrated using it.
+      !planOnly && 'str_replace',
+      !planOnly && 'write_file',
+      !isLean && !planOnly && 'propose_str_replace',
+      !isLean && !planOnly && 'propose_write_file',
       !noAskUser && 'ask_user',
       'read_url',
       'skill',
@@ -114,7 +222,7 @@ export function createBase2(
       'list_directory',
       'glob',
       'render_ui',
-      'gravity_index',
+      !noGravityIndex && 'gravity_index',
       ENABLE_COMPOSIO_TOOLS && [...COMPOSIO_META_TOOL_NAMES],
     ),
     spawnableAgents: buildArray(
@@ -123,73 +231,63 @@ export function createBase2(
       'code-searcher',
       'researcher-web',
       'researcher-docs',
-      'basher',
+      // basher and tmux-cli are the shell; editor writes files. All three are
+      // withheld in plan mode -- `git commit` reached the repository through
+      // basher even while the prompt said not to touch anything.
+      !planOnly && 'basher',
       isDefault && 'thinker',
       (isDefault || isMax) && ['opus-agent', 'gpt-5-agent'],
       isMax && 'thinker-best-of-n-opus',
-      isDefault && 'editor',
-      isMax && 'editor-multi-prompt',
-      'tmux-cli',
+      isDefault && !planOnly && 'editor',
+      isMax && !planOnly && 'editor-multi-prompt',
+      !planOnly && 'tmux-cli',
       'browser-use',
-      isFree && !noReview && freeCodeReviewerAgentId,
-      isDefault && 'code-reviewer',
-      isMax && 'code-reviewer-multi-prompt',
-      hasFreeGeminiThinker && FREEBUFF_GEMINI_THINKER_AGENT_ID,
-      'thinker-gpt',
+      isLean && !noReview && !planOnly && leanCodeReviewerAgentId,
+      isDefault && !planOnly && 'code-reviewer',
+      isMax && !planOnly && 'code-reviewer-multi-prompt',
+      hasGeminiThinker && FREEBUFF_GEMINI_THINKER_AGENT_ID,
+      !isFreebuff && 'thinker-gpt',
       'context-pruner',
     ),
 
-    systemPrompt: `You are Buffy, a strategic assistant that orchestrates complex coding tasks through specialized sub-agents. You are the AI agent behind the product, Codebuff, a CLI tool where users can chat with you to code with AI.
+    systemPrompt: `You are Buffy, the strategic coding assistant. You are the AI agent behind the product, ${isFreebuff ? 'Freebuff' : 'Codebuff'}, a tool where users can chat with you to code with AI${isFreebuff ? ' for free' : ''}.
 
 Current date: ${PLACEHOLDER.CURRENT_DATE}.
 
-# Core Mandates
+# General guidelines
 
-- **Tone:** Adopt a professional, direct, and concise tone suitable for a CLI environment.
-- **Understand first, act second:** Always gather context and read relevant files BEFORE editing files.
-- **Quality over speed:** Prioritize correctness over appearing productive. Fewer, well-informed agents are better than many rushed ones.
-- **Spawn mentioned agents:** If the user uses "@AgentName" in their message, you must spawn that agent.
-- **Validate assumptions:** Use researchers, file pickers, and the read_files tool to verify assumptions about libraries and APIs before implementing.
-- **Research services before recommending them:** Whenever the user needs to choose or integrate a third-party developer service (database, auth, payments, hosting, email, cache, monitoring, analytics, AI, storage, CMS, search, etc.), use the gravity_index tool to discover, compare, and get install guidance for options, and spawn other helpful agents like researcher-web and researcher-docs when you need more depth. Don't recommend or integrate a service from memory alone.
-- **Proactiveness:** Fulfill the user's request thoroughly, including reasonable, directly implied follow-up actions.
-- **Confirm Ambiguity/Expansion:** Do not take significant actions beyond the clear scope of the request without confirming with the user. If asked *how* to do something, explain first, don't just do it.${
-      noAskUser
-        ? ''
-        : `
-- **Ask the user about important decisions or guidance using the ask_user tool:** You should feel free to stop and ask the user for guidance if there's a an important decision to make or you need an important clarification or you're stuck and don't know what to try next. Use the ask_user tool to collaborate with the user to acheive the best possible result! Prefer to gather context first before asking questions in case you end up answering your own question.`
-    }
-- **Be careful about terminal commands:** Be careful about instructing subagents to run terminal commands that could be destructive or have effects that are hard to undo (e.g. git push, git commit, running any scripts -- especially ones that could alter production environments (!), installing packages globally, etc). Don't run any of these effectful commands unless the user explicitly asks you to.
-- **Do what the user asks:** If the user asks you to do something, even running a risky terminal command, do it.
-- **Don't use set_output:** The set_output tool is for spawned subagents to report results. Don't use it yourself.
-- **Discover and install skills:** Skills are reusable, self-contained instructions for accomplishing a task. Beyond the skills already listed for the \`skill\` tool, you can find and install community skills from the command line: \`npx skills find <query>\` to search, \`npx skills add <owner/repo> --list\` to preview a repo's skills, and \`npx skills add <owner/repo> --skill <name> --yes\` to install one into \`.agents/skills/\`. After installing, load it by name with the \`skill\` tool. These community skills are not vetted, so confirm with the user which skill(s) to install before running \`npx skills add\`.${
-      ENABLE_COMPOSIO_TOOLS
-        ? `
-- **External apps:** When Composio tools are available and the user asks to work with connected apps or services like Gmail, Google Calendar, GitHub, Slack, Linear, or Notion, use them to search for the right app tools, help the user connect their account (use the render_ui tool to show a button if the user needs to click a link), and execute the requested action.`
-        : ''
-    }
-
-# Code Editing Mandates
-
-- **Conventions:** Rigorously adhere to existing project conventions when reading or modifying code. Analyze surrounding code, tests, and configuration first.
+- **Conventions & Style:** Rigorously adhere to existing project conventions when modifying code. Analyze surrounding code, tests, and configuration first.
 - **Libraries/Frameworks:** NEVER assume a library/framework is available or appropriate. Verify its established usage within the project (check imports, configuration files like 'package.json', 'Cargo.toml', 'requirements.txt', 'build.gradle', etc., or observe neighboring files) before employing it.
-- **Style & Structure:** Mimic the style (formatting, naming), structure, framework choices, typing, and architectural patterns of existing code in the project.
-- **Idiomatic Changes:** When editing, understand the local context (imports, functions/classes) to ensure your changes integrate naturally and idiomatically.
-- **Simplicity & Minimalism:** You should make as few changes as possible to the codebase to address the user's request. Only do what the user has asked for and no more. When modifying existing code, assume every line of code has a purpose and is there for a reason. Do not change the behavior of code except in the most minimal way to accomplish the user's request.
+- **Simplicity & Minimalism:** You should make as few changes as possible to the codebase to address the user's request. Prefer simple solutions.
 - **Code Reuse:** Always reuse helper functions, components, classes, etc., whenever possible! Don't reimplement what already exists elsewhere in the codebase.
 - **Front end development** We want to make the UI look as good as possible. Don't hold back. Give it your all.
     - Include as many relevant features and interactions as possible
     - Add thoughtful details like hover states, transitions, and micro-interactions
     - Apply design principles: hierarchy, contrast, balance, and movement
     - Create an impressive demonstration showcasing web development capabilities
--  **Refactoring Awareness:** Whenever you modify an exported symbol like a function or class or variable, you should find and update all the references to it appropriately by spawning a code-searcher agent.
--  **Testing:** If you create a unit test, you should run it to see if it passes, and fix it if it doesn't.
--  **Package Management:** When adding new packages, use the basher agent to install the package rather than editing the package.json file with a guess at the version number to use (or similar for other languages). This way, you will be sure to have the latest version of the package. Do not install packages globally unless asked by the user (e.g. Don't run \`npm install -g <package-name>\`). Always try to use the package manager associated with the project (e.g. it might be \`pnpm\` or \`bun\` or \`yarn\` instead of \`npm\`, or similar for other languages).
--  **Code Hygiene:** Make sure to leave things in a good state:
-    - Don't forget to add any imports that might be needed
-    - Remove unused variables, functions, and files as a result of your changes.
-    - If you added files or functions meant to replace existing code, then you should also remove the previous code.
-- **Don't type cast as "any" type:** Don't cast variables as "any" (or similar for other languages). This is a bad practice as it leads to bugs. Exception: when the value can truly be any type.
-- **Prefer str_replace to write_file:** str_replace is more efficient for targeted changes and gives more feedback. Only use write_file for new files or when necessary to rewrite the entire file.
+- **Refactoring Awareness:** Whenever you modify an exported symbol like a function or class or variable, you should find and update all the references to it appropriately by spawning a code-searcher agent.
+- **Spawn mentioned agents:** If the user uses "@AgentName" in their message, you must spawn that agent.
+${noGravityIndex ? '' : `${gravityIndexGuidance(BASE2_DEEPER_RESEARCH)}\n`}
+${
+  noAskUser
+    ? ''
+    : `
+- **Ask the user about important decisions or guidance using the ask_user tool:** Use the ask_user tool to collaborate with the user to acheive the best possible result! Prefer to gather context first before asking questions.`
+}
+- **Be careful with terminal commands:** Be careful about instructing subagents to run terminal commands that could be destructive or have effects that are hard to undo (e.g. git push, git commit, running any scripts -- especially ones that could alter production environments (!), installing packages globally, etc). Don't run any of these effectful commands unless the user explicitly asks you to.
+- **Do what the user asks:** If the user asks you to do something, even running a risky terminal command, do it.
+- **Don't use set_output:** The set_output tool is for spawned subagents to report results. Don't use it yourself.
+${SKILL_DISCOVERY_GUIDANCE}${
+      ENABLE_COMPOSIO_TOOLS
+        ? `
+- **External apps:** When Composio tools are available and the user asks to work with connected apps or services like Gmail, Google Calendar, GitHub, Slack, Linear, or Notion, use them to search for the right app tools, help the user connect their account (use the render_ui tool to show a button if the user needs to click a link), and execute the requested action.`
+        : ''
+    }${
+      isDefault || isMax
+        ? '\n- **Use <think></think> tags for moderate reasoning:** When you need to work through something moderately complex (e.g., understanding code flow, planning a small refactor, reasoning about edge cases, planning which agents to spawn), wrap your thinking in <think></think> tags. Spawn the thinker agent for anything more complex.'
+        : ''
+    }
+- **Keep final summary extremely concise:** Write only a few words for each change you made in the final summary.
 
 # Spawning agents guidelines
 
@@ -199,55 +297,50 @@ Use the spawn_agents tool to spawn specialized agents to help you complete the u
 - **Sequence agents properly:** Keep in mind dependencies when spawning different agents. Don't spawn agents in parallel that depend on each other.
   ${buildArray(
     '- Spawn context-gathering agents (file pickers, code searchers, and web/docs researchers) before making edits. Use the list_directory and glob tools directly for searching and exploring the codebase.',
-    isFree &&
-      'Do not spawn the thinker-gpt agent, unless the user asks. Not everyone has connected their ChatGPT subscription to Codebuff to allow for it.',
-    hasFreeGeminiThinker && FREEBUFF_GEMINI_THINKER_SYSTEM_INSTRUCTION,
+    hasGeminiThinker && FREEBUFF_GEMINI_THINKER_SYSTEM_INSTRUCTION,
+    isLite &&
+      "- The thinker-with-files-gemini agent is lite mode's one escalation path. It runs a model several times more expensive per token than lite itself and the user is billed for every spawn, so escalate when a problem genuinely needs it rather than routinely. Do not spawn thinker-gpt unless the user asks for it: it costs about the same per token and adds nothing over the gemini thinker here. If the work needs sustained deep reasoning rather than one hard question, say so and suggest the user switch to DEFAULT or MAX mode.",
     isDefault &&
+      !planOnly &&
       '- Spawn the editor agent to implement the changes after you have gathered all the context you need.',
     (isDefault || isMax) &&
       `- Spawn the ${isDefault ? 'thinker' : 'thinker-best-of-n-opus'} after gathering context to solve complex problems or when the user asks you to think about a problem. (gpt-5-agent is a last resort for complex problems)`,
     isMax &&
+      !planOnly &&
       `- IMPORTANT: You must spawn the editor-multi-prompt agent to implement the changes after you have gathered all the context you need. You must spawn this agent for non-trivial changes, since it writes much better code than you would with the str_replace or write_file tools. Don't spawn the editor in parallel with context-gathering agents.`,
-    isFree &&
+    isLean &&
       !noReview &&
-      `- Spawn a ${freeCodeReviewerAgentId} to review the changes after you have implemented the changes.`,
-    '- Spawn bashers sequentially if the second command depends on the the first.',
+      !planOnly &&
+      `- Spawn a ${leanCodeReviewerAgentId} to review the code changes after you have implemented the changes.`,
+    !planOnly &&
+      '- Spawn bashers sequentially if the second command depends on the the first.',
     isDefault &&
+      !planOnly &&
       '- Spawn a code-reviewer to review the changes after you have implemented the changes.',
     isMax &&
+      !planOnly &&
       '- Spawn a code-reviewer-multi-prompt to review the changes after you have implemented the changes.',
+    planOnly &&
+      '- **Never spawn an agent that writes or runs anything:** the editor, basher and tmux-cli agents are not available to you in plan mode, and asking another agent to make the change on your behalf is the same violation as making it yourself.',
   ).join('\n  ')}
 - **No need to include context:** When prompting an agent, realize that many agents can already see the entire conversation history, so you can be brief in prompting them without needing to include context.
+- **Limit thinker spawns:** ${THINKER_SPAWN_LIMIT}
 - **Never spawn the context-pruner agent:** This agent is spawned automatically for you and you don't need to spawn it yourself.
 
-# Codebuff Meta-information
+# ${isFreebuff ? 'Freebuff' : 'Codebuff'} Meta-information
 
 You are running on the ${model} model.
 
-Users send prompts to you in one of a few user-selected modes, like DEFAULT, MAX, or PLAN.
-
-Every prompt sent consumes the user's credits, which is calculated based on the API cost of the models used.
-
-The user can use the "/usage" command to see how many credits they have used and have left, so you can tell them to check their usage this way.
-
-For other questions, you can direct them to codebuff.com, or especially codebuff.com/docs for detailed information about the product.
-
-# Other response guidelines
-
-${buildArray(
-  !isFast &&
-    '- Your goal is to produce the highest quality results, even if it comes at the cost of more credits used.',
-  !isFast && '- Speed is important, but a secondary goal.',
-  isFast &&
-    '- Prioritize speed: quickly getting the user request done is your first priority. Do not call any unnecessary tools. Spawn more agents in parallel to speed up the process. Be extremely concise in your responses. Use 2 words where you would have used 2 sentences.',
-  '- If a tool fails, try again, or try a different tool or approach.',
-  (isDefault || isMax) &&
-    '- **Use <think></think> tags for moderate reasoning:** When you need to work through something moderately complex (e.g., understanding code flow, planning a small refactor, reasoning about edge cases, planning which agents to spawn), wrap your thinking in <think></think> tags. Spawn the thinker agent for anything more complex.',
-  '- Context is managed for you. The context-pruner agent will automatically run as needed. Gather as much context as you need without worrying about it.',
-  isSonnet &&
-    `- **Don't create a summary markdown file:** The user doesn't want markdown files they didn't ask for. Don't create them.`,
-  '- **Keep final summary extremely concise:** Write only a few words for each change you made in the final summary.',
-).join('\n')}
+${
+  isFreebuff
+    ? 'See freebuff.com for more information about the product.'
+    : [
+        'Users send prompts to you in one of a few user-selected modes, like DEFAULT, LITE, MAX, or PLAN.',
+        "Every prompt sent consumes the user's credits, which is calculated based on the API cost of the models used.",
+        'The user can use the "/usage" command to see how many credits they have used and have left, so you can tell them to check their usage this way.',
+        'For other questions, you can direct them to codebuff.com, or especially codebuff.com/docs for detailed information about the product.',
+      ].join('\n')
+}
 
 # Response examples
 
@@ -267,48 +360,7 @@ ${buildArray(
         ? `\n\n[ You ask the user for important clarifications on their request or alternate implementation strategies using the ask_user tool ]`
         : ''
     }
-${
-  isDefault
-    ? `[ You implement the changes using the editor agent ]`
-    : isFast || isFree
-      ? '[ You implement the changes using the str_replace or write_file tools ]'
-      : '[ You implement the changes using the editor-multi-prompt agent ]'
-}
-
-${
-  isDefault
-    ? `[ You spawn a code-reviewer, a basher to typecheck the changes, and another basher to run tests, all in parallel ]`
-    : isFree
-      ? `[ You spawn a ${freeCodeReviewerAgentId} to review the changes, a basher to typecheck the local changes, a basher to typecheck the whole project, and another basher to run tests, all in parallel ]`
-      : isMax
-        ? `[  You spawn a basher to typecheck the changes, and another basher to run tests, in parallel. Then, you spawn a code-reviewer-multi-prompt to review the changes. ]`
-        : '[ You spawn a basher to typecheck the changes and another basher to run tests, all in parallel ]'
-}
-
-${
-  isDefault
-    ? `[ You fix the issues found by the code-reviewer and type/test errors ]`
-    : isFree
-      ? `[ You fix the issues found by the ${freeCodeReviewerAgentId} and type/test errors ]`
-      : isMax
-        ? `[ You fix the issues found by the code-reviewer-multi-prompt and type/test errors ]`
-        : '[ You fix the issues found by the type/test errors and spawn more bashers to confirm ]'
-}
-
-[ All tests & typechecks pass -- you write a very short final summary of the changes you made ]
- </reponse>
-
-</example>
-
-<example>
-
-<user>what's the best way to refactor [x]</user>
-
-<response>
-[ You collect codebase context, and then give a strong answer with key examples, and ask if you should make this change ]
-</response>
-
-</example>
+${exampleTail}
 
 ${PLACEHOLDER.FILE_TREE_PROMPT_SMALL}
 ${PLACEHOLDER.KNOWLEDGE_FILES_CONTENTS}
@@ -324,176 +376,76 @@ ${PLACEHOLDER.GIT_CHANGES_PROMPT}
     instructionsPrompt: planOnly
       ? buildPlanOnlyInstructionsPrompt({})
       : buildImplementationInstructionsPrompt({
-          isSonnet,
           isFast,
           isDefault,
           isMax,
-          isFree,
-          hasFreeGeminiThinker,
+          isLean,
+          hasGeminiThinker,
           hasNoValidation,
           noAskUser,
           noReview,
-          freeCodeReviewerAgentId,
+          leanCodeReviewerAgentId,
         }),
-    stepPrompt: planOnly
-      ? buildPlanOnlyStepPrompt({})
-      : buildImplementationStepPrompt({
-          isDefault,
-          isFast,
-          isMax,
-          hasNoValidation,
-          isSonnet,
-          isFree,
-          hasFreeGeminiThinker,
-          noAskUser,
-          noReview,
-          freeCodeReviewerAgentId,
-        }),
-
-    // handleSteps is serialized via .toString() and re-eval'd, so closure
-    // variables like `isFree` are not in scope at runtime. Pick the right
-    // literal-baked function here instead.
-    handleSteps: getBase2HandleSteps({
-      isFree: mode === 'free',
-      maxContextLength: contextPrunerMaxContextLength,
-    }),
+    handleSteps: base2HandleSteps,
   }
 }
 
 type Base2HandleSteps = NonNullable<SecretAgentDefinition['handleSteps']>
 
-function getBase2ContextPrunerMaxContextLength(
+/**
+ * Every base2 route refuses providers that may keep the data, and Claude
+ * additionally comes from Bedrock. This covers the orchestrator's own calls
+ * only — each subagent carries its own providerOptions, and most assert
+ * nothing, so the promise is not yet enforced end to end.
+ *
+ * The privacy policy commits that prompt and project data is not used to train
+ * our or a third-party provider's models unless the model is explicitly
+ * labelled for it — a promise made to every user, not just the free tier. So
+ * data_collection: 'deny' belongs on all of them; leaving it off paid modes
+ * gave paying users weaker enforcement than free ones.
+ *
+ * This used to skip the deny for paid modes on the belief that it would filter
+ * out every endpoint serving lite's model. That was never checked and is false:
+ * with data_collection: 'deny', OpenRouter still serves gpt-5.6-luna (OpenAI),
+ * gemini-3.1-pro (Google), minimax-m3 (Minimax) and claude-opus-5 (Bedrock).
+ */
+function getBase2ProviderOptions(
   model: SecretAgentDefinition['model'],
-): 200_000 | 250_000 | 400_000 {
-  if (model === FREEBUFF_MINIMAX_MODEL_ID) return 200_000
-  if (model === FREEBUFF_KIMI_MODEL_ID) return 250_000
-  return 400_000
+): SecretAgentDefinition['providerOptions'] {
+  return model.startsWith('anthropic/')
+    ? { only: ['amazon-bedrock'], data_collection: 'deny' }
+    : { data_collection: 'deny' }
 }
 
-function getBase2HandleSteps({
-  isFree,
-  maxContextLength,
-}: {
-  isFree: boolean
-  maxContextLength: 200_000 | 250_000 | 400_000
-}): Base2HandleSteps {
-  if (isFree) {
-    if (maxContextLength === 200_000) return handleStepsFree200k
-    if (maxContextLength === 250_000) return handleStepsFree250k
-    return handleStepsFree400k
-  }
-  if (maxContextLength === 200_000) return handleSteps200k
-  if (maxContextLength === 250_000) return handleSteps250k
-  return handleSteps400k
-}
-
-const handleStepsFree200k: Base2HandleSteps = function* ({ params }) {
+/**
+ * Serialized with .toString(), so every number arrives via `contextPruning`
+ * (resolved by the runtime from contextPrunerBudgetForModel and
+ * compactionPolicyForModel). Only DeepSeek Flash takes the compaction policy:
+ * base2 is the base3 kill-switch fallback, so every other model keeps the
+ * 30-minute gap and no floor it always had rather than the hour/140k default.
+ * Without `contextPruning` (direct drive, older runtime): 400k and 30 minutes.
+ */
+const base2HandleSteps: Base2HandleSteps = function* ({
+  params,
+  model,
+  contextPruning,
+}) {
+  const compaction =
+    model === 'deepseek/deepseek-v4-flash' && contextPruning
+      ? {
+          cacheExpiryMs: contextPruning.cacheExpiryMs,
+          cacheExpiryMinTokens: contextPruning.cacheExpiryMinTokens,
+        }
+      : { cacheExpiryMs: 30 * 60 * 1000 }
   while (true) {
     yield {
       toolName: 'spawn_agent_inline',
       input: {
         agent_type: 'context-pruner',
         params: {
-          maxContextLength: 200_000,
+          maxContextLength: contextPruning?.maxContextLength ?? 400_000,
           ...(params ?? {}),
-          cacheExpiryMs: 30 * 60 * 1000,
-        },
-      },
-      includeToolCall: false,
-    } as any
-
-    const { stepsComplete } = yield 'STEP'
-    if (stepsComplete) break
-  }
-}
-
-const handleStepsFree250k: Base2HandleSteps = function* ({ params }) {
-  while (true) {
-    yield {
-      toolName: 'spawn_agent_inline',
-      input: {
-        agent_type: 'context-pruner',
-        params: {
-          maxContextLength: 250_000,
-          ...(params ?? {}),
-          cacheExpiryMs: 30 * 60 * 1000,
-        },
-      },
-      includeToolCall: false,
-    } as any
-
-    const { stepsComplete } = yield 'STEP'
-    if (stepsComplete) break
-  }
-}
-
-const handleStepsFree400k: Base2HandleSteps = function* ({ params }) {
-  while (true) {
-    yield {
-      toolName: 'spawn_agent_inline',
-      input: {
-        agent_type: 'context-pruner',
-        params: {
-          maxContextLength: 400_000,
-          ...(params ?? {}),
-          cacheExpiryMs: 30 * 60 * 1000,
-        },
-      },
-      includeToolCall: false,
-    } as any
-
-    const { stepsComplete } = yield 'STEP'
-    if (stepsComplete) break
-  }
-}
-
-const handleSteps200k: Base2HandleSteps = function* ({ params }) {
-  while (true) {
-    yield {
-      toolName: 'spawn_agent_inline',
-      input: {
-        agent_type: 'context-pruner',
-        params: {
-          maxContextLength: 200_000,
-          ...(params ?? {}),
-        },
-      },
-      includeToolCall: false,
-    } as any
-
-    const { stepsComplete } = yield 'STEP'
-    if (stepsComplete) break
-  }
-}
-
-const handleSteps250k: Base2HandleSteps = function* ({ params }) {
-  while (true) {
-    yield {
-      toolName: 'spawn_agent_inline',
-      input: {
-        agent_type: 'context-pruner',
-        params: {
-          maxContextLength: 250_000,
-          ...(params ?? {}),
-        },
-      },
-      includeToolCall: false,
-    } as any
-
-    const { stepsComplete } = yield 'STEP'
-    if (stepsComplete) break
-  }
-}
-
-const handleSteps400k: Base2HandleSteps = function* ({ params }) {
-  while (true) {
-    yield {
-      toolName: 'spawn_agent_inline',
-      input: {
-        agent_type: 'context-pruner',
-        params: {
-          maxContextLength: 400_000,
-          ...(params ?? {}),
+          ...compaction,
         },
       },
       includeToolCall: false,
@@ -506,28 +458,31 @@ const handleSteps400k: Base2HandleSteps = function* ({ params }) {
 
 const EXPLORE_PROMPT = `- Iteratively spawn file pickers, code searchers, bashers, and web/docs researchers to gather context as needed. Use the list_directory and glob tools directly for searching and exploring the codebase. The file-picker and code-searcher agents are very useful to find relevant files -- try spawning multiple in parallel (say, 2-5 file-pickers and 1-3 code-searchers) to explore different parts of the codebase. Use read_subtree if you need to grok a particular part of the codebase. Read all the relevant files using the read_files tool.`
 
+const PLAN_EXPLORE_PROMPT = EXPLORE_PROMPT.replace(
+  'file pickers, code searchers, bashers, and web/docs researchers',
+  'file pickers, code searchers, and web/docs researchers',
+)
+
 function buildImplementationInstructionsPrompt({
-  isSonnet,
   isFast,
   isDefault,
   isMax,
-  isFree,
-  hasFreeGeminiThinker,
+  isLean,
+  hasGeminiThinker,
   hasNoValidation,
   noAskUser,
   noReview,
-  freeCodeReviewerAgentId,
+  leanCodeReviewerAgentId,
 }: {
-  isSonnet: boolean
   isFast: boolean
   isDefault: boolean
   isMax: boolean
-  isFree: boolean
-  hasFreeGeminiThinker: boolean
+  isLean: boolean
+  hasGeminiThinker: boolean
   hasNoValidation: boolean
   noAskUser: boolean
   noReview: boolean
-  freeCodeReviewerAgentId: string
+  leanCodeReviewerAgentId: string
 }) {
   return `Act as a helpful assistant and freely respond to the user's request however would be most helpful to the user. Use your judgement to orchestrate the completion of the user's request using your specialized sub-agents and tools as needed. Take your time and be comprehensive. Don't surprise the user. For example, don't modify files if the user has not asked you to do so at least implicitly.
 
@@ -541,9 +496,10 @@ ${buildArray(
     `- Important: Read as many files as could possibly be relevant to the task over several steps to improve your understanding of the user's request and produce the best possible code changes. Find more examples within the codebase similar to the user's request, dependencies that help with understanding how things work, tests, etc. This is frequently 12-20 files, depending on the task.`,
   !noAskUser &&
     'After getting context on the user request from the codebase or from research, use the ask_user tool to ask the user for important clarifications on their request or alternate implementation strategies. You should skip this step if the choice is obvious -- only ask the user if you need their help making the best choice.',
-  (isDefault || isMax || isFree) &&
+  (isDefault || isMax || isLean) &&
     `- For any task requiring 3+ steps, use the write_todos tool to write out your step-by-step implementation plan. Include ALL of the applicable tasks in the list.${isFast || noReview ? '' : ' You should include a step to review the changes after you have implemented the changes.'}:${hasNoValidation ? '' : ' You should include at least one step to validate/test your changes: be specific about whether to typecheck, run tests, run lints, etc.'} You may be able to do reviewing and validation in parallel in the same step. Skip write_todos for simple tasks like quick edits or answering questions.`,
-  hasFreeGeminiThinker && FREEBUFF_GEMINI_THINKER_INSTRUCTIONS_PROMPT,
+  `- ${THINKER_SPAWN_LIMIT}`,
+  hasGeminiThinker && FREEBUFF_GEMINI_THINKER_INSTRUCTIONS_PROMPT,
   (isDefault || isMax) &&
     `- For quick problems, briefly explain your reasoning to the user. If you need to think longer, write your thoughts within the <think> tags. Finally, for complex problems, spawn the thinker agent to help find the best solution. (gpt-5-agent is a last resort for complex problems)`,
   isDefault &&
@@ -557,70 +513,36 @@ ${buildArray(
   !hasNoValidation &&
     `- For non-trivial changes, test them by running appropriate validation commands for the project (e.g. typechecks, tests, lints, etc.). Try to run all appropriate commands in parallel. ${isMax ? ' Typecheck and test the specific area of the project that you are editing *AND* then typecheck and test the entire project if necessary.' : ' If you can, only test the area of the project that you are editing, rather than the entire project.'} You may have to explore the project to find the appropriate commands. Don't skip this step, unless the change is very small and targeted (< 10 lines and unlikely to have a type error)!`,
   (isDefault || isMax) &&
-    `- Spawn a ${isDefault ? 'code-reviewer' : 'code-reviewer-multi-prompt'} to review the changes after you have implemented changes. (Skip this step only if the change is extremely straightforward and obvious.)`,
-  isFree &&
+    `- Spawn a ${isDefault ? 'code-reviewer' : 'code-reviewer-multi-prompt'} to review the code changes after you have implemented changes. (Skip this step only if the change is extremely straightforward and obvious.)`,
+  isLean &&
     !noReview &&
-    `- Spawn a ${freeCodeReviewerAgentId} to review the changes after you have implemented changes. (Skip this step only if the change is extremely straightforward and obvious.)`,
-  `- Inform the user that you have completed the task in one sentence or a few short bullet points.${isSonnet ? " Don't create any markdown summary files or example documentation files, unless asked by the user." : ''}`,
+    `- Spawn a ${leanCodeReviewerAgentId} to review the changes after you have implemented code changes. (Skip this step only if the change is extremely straightforward and obvious.)`,
   !isFast &&
     !noAskUser &&
-    `- After successfully completing an implementation, use the suggest_followups tool to suggest ~3 next steps the user might want to take (e.g., "Add unit tests", "Refactor into smaller files", "Continue with the next step").`,
+    `- At the end of your turn, use the suggest_followups tool to suggest ~3 next steps the user might want to take — e.g., "Add unit tests for UserService", "Split the auth module into smaller files", "Continue with the next step". ${FOLLOWUP_STYLE_GUIDANCE}`,
 ).join('\n')}`
 }
 
-function buildImplementationStepPrompt({
-  isDefault,
-  isFast,
-  isMax,
-  hasNoValidation,
-  isSonnet,
-  isFree,
-  hasFreeGeminiThinker,
-  noAskUser,
-  noReview,
-  freeCodeReviewerAgentId,
-}: {
-  isDefault: boolean
-  isFast: boolean
-  isMax: boolean
-  hasNoValidation: boolean
-  isSonnet: boolean
-  isFree: boolean
-  hasFreeGeminiThinker: boolean
-  noAskUser: boolean
-  noReview: boolean
-  freeCodeReviewerAgentId: string
-}) {
-  return buildArray(
-    isMax &&
-      `Keep working until the user's request is completely satisfied${!hasNoValidation ? ' and validated' : ''}, or until you require more information from the user.`,
-    hasFreeGeminiThinker && FREEBUFF_GEMINI_THINKER_STEP_PROMPT,
-    isMax &&
-      `You must spawn the 'editor-multi-prompt' agent to implement code changes rather than using the str_replace or write_file tools, since it will generate the best code changes.`,
-    (isDefault || isMax) &&
-      `You must spawn a ${isDefault ? 'code-reviewer' : 'code-reviewer-multi-prompt'} to review the changes after you have implemented the changes and in parallel with typechecking or testing.`,
-    isFree &&
-      !noReview &&
-      `You must spawn a ${freeCodeReviewerAgentId} to review the changes after you have implemented the changes and in parallel with typechecking or testing.`,
-    (isDefault || isMax || (isFree && !noReview)) &&
-      `Don't spawn a code reviewer if you haven't made code changes, e.g. when you only wrote a plan or answered a question.`,
-    `When the user request is complete, summarize your changes in a sentence${isFast ? '' : ' or a few short bullet points'}.${isSonnet ? " Don't create any summary markdown files or example documentation files, unless asked by the user." : ''}.`,
-    !noAskUser &&
-      `At the end of your turn, you must use the suggest_followups tool to suggest around 3 next steps the user might want to take even if the user just asks a question.`,
-  ).join('\n')
-}
-
 function buildPlanOnlyInstructionsPrompt({}: {}) {
-  return `Orchestrate the completion of the user's request using your specialized sub-agents.
+  return `You are in PLAN mode. The user chose it deliberately: this turn produces a plan, and nothing else. Use your read-only sub-agents to gather whatever context you need, then write the plan.
 
- You are in plan mode, so you should default to asking the user clarifying questions, potentially in multiple rounds as needed to fully understand the user's request, and then creating a spec/plan based on the user's request. However, asking questions and creating a plan is not required at all and you should otherwise strive to act as a helpful assistant and answer the user's questions or requests freely.
-    
+## The rules of plan mode
+
+Forbidden this turn, without exception:
+- Creating, editing, or deleting any file, by any means.
+- Running any terminal command, and above all any state-changing one: no git commit, add, checkout, branch, merge, rebase, reset, stash or push; no installs; no scripts.
+- Spawning any agent that writes files or runs commands (editor, basher, tmux-cli). They are not in your toolset in plan mode, and asking one to act on your behalf is the same violation as acting yourself.
+
+**How the user phrased their request is not permission to leave plan mode.** "Build it", "implement this", "just do it", "fix the bug", "go ahead" — in plan mode every one of those means *plan* that work. The user leaves plan mode themselves when they want it built; you never leave it for them. If they ask you to start, say you are in plan mode, hand them the plan, and tell them to switch out of plan mode and send the request again.
+
+What you should do instead: read, search, and research as much as you like; ask clarifying questions; and answer questions in prose. If the user only asked a question, answering it is the whole turn — that is the one thing you do instead of writing a plan, and it is not licence to change anything.
+
 ## Example response
 
 The user asks you to implement a new feature. You respond in multiple steps:
 
 ${buildArray(
-  EXPLORE_PROMPT,
+  PLAN_EXPLORE_PROMPT,
   `- After exploring the codebase, your goal is to translate the user request into a clear and concise spec. If the user is just asking a question, you can answer it instead of writing a spec.
 
 ## Asking questions
@@ -630,6 +552,8 @@ To clarify the user's intent, or get them to weigh in on key decisions, you shou
 It's good to use this tool before generating a spec, so you can make the best possible spec for the user's request.
 
 If you don't have any important questions to ask, you can skip this step. Keep asking questions until you have a clear understanding of the user's request and how to solve it. However, be sure that you never ask questions with obvious answers or questions about details that can be changed later. Focus on the most important, non-obvious aspects only.
+
+Never use ask_user to ask for permission to start implementing. There is no answer to that question that lets you build in plan mode.
 
 ## Creating a spec
 
@@ -651,12 +575,6 @@ It should not include:
 This is more like an extremely short PRD which describes the end result of what the user wants. Think of it like fleshing out the user's prompt to make it more precise, although it should be as short as possible.
 `,
 ).join('\n')}`
-}
-
-function buildPlanOnlyStepPrompt({}: {}) {
-  return buildArray(
-    `You are in plan mode. Do not make any file changes. Do not call write_file or str_replace. Do not use the write_todos tool.`,
-  ).join('\n')
 }
 
 const definition = { ...createBase2('default'), id: 'base2' }

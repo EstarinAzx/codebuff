@@ -19,6 +19,12 @@ const serverDefaults: Record<string, string> = {
   OPEN_ROUTER_API_KEY: 'test',
   OPENAI_API_KEY: 'test',
   SERPER_API_KEY: 'test',
+  // Direct-provider handlers throw before fetch when their key is unset, so
+  // give the mocked-fetch tests a dummy — without these, whether the CrofAI/
+  // MiMo routing tests pass depends on the developer's shell env.
+  CROF_AI_API_KEY: 'test',
+  RUNINFRA_GATEWAY_KEY: 'test',
+  MIMO_API_KEY: 'test',
   PORT: '4242',
   DATABASE_URL: 'postgres://user:pass@localhost:5432/db',
   CODEBUFF_GITHUB_ID: 'test-id',
@@ -32,6 +38,11 @@ const serverDefaults: Record<string, string> = {
   DISCORD_BOT_TOKEN: 'test',
   DISCORD_APPLICATION_ID: 'test',
 }
+
+// Ops knobs that must NOT leak from a developer or operator shell into tests.
+// CI unit jobs are secretless, but local shells can still carry rollout state.
+// Tests that want the other setting set process.env themselves.
+process.env.FREEBUFF_GOD_QUOTA_EXEMPT = 'on'
 
 for (const [key, value] of Object.entries(testDefaults)) {
   if (!process.env[key]) {
@@ -52,3 +63,9 @@ if (process.env.CI !== 'true' && process.env.CI !== '1') {
 // Hint to downstream code that this is a test runtime
 process.env.NODE_ENV ||= 'test'
 process.env.BUN_ENV ||= 'test'
+
+// No test anywhere ships telemetry to the production Axiom dataset, even if the
+// caller's environment claims NEXT_PUBLIC_CB_ENVIRONMENT is prod. Desktop server
+// children are spawned with { ...process.env }, so they inherit this too.
+// An explicit override still wins (freebuff-desktop's log-shipper.test.ts opts in).
+process.env.FREEBUFF_SHIP_LOGS ??= 'false'

@@ -3,7 +3,6 @@ import {
   getLastReadFilePaths,
 } from '@codebuff/common/project-file-tree'
 import { createMarkdownFileBlock } from '@codebuff/common/util/file'
-import { truncateString } from '@codebuff/common/util/string'
 import { closeXml } from '@codebuff/common/util/xml'
 
 import { truncateFileTreeBasedOnTokenBudget } from './truncate-file-tree'
@@ -106,8 +105,31 @@ export const additionalSystemPrompts = {
   '/export': exportPrompt,
   export: exportPrompt,
   '/compact': compactPrompt,
+  // The bare word stays ON PURPOSE: the CLI rejects unregistered slash
+  // commands locally ("Command not found"), so the bare word is the only
+  // spelling a shipped client can actually deliver — dropping it kills manual
+  // compaction everywhere. What made it dangerous was run-agent-step's
+  // history-replacing branch matching MORE prompts than this map injects the
+  // summarize instruction for; that branch now uses isCompactCommandPrompt
+  // below, so the two can never diverge.
   compact: compactPrompt,
 } as const
+
+/**
+ * True when `prompt` is the compact command AND received `compactPrompt` from
+ * the map above. run-agent-step's history-replacing branch must use this
+ * rather than matching the prompt itself: a trigger that matches prompts the
+ * map does not (e.g. `/Compact` under a lowercased comparison) replaces the
+ * whole history with an ordinary answer instead of a summary.
+ */
+export function isCompactCommandPrompt(prompt: string | undefined): boolean {
+  return (
+    prompt !== undefined &&
+    prompt in additionalSystemPrompts &&
+    additionalSystemPrompts[prompt as keyof typeof additionalSystemPrompts] ===
+      compactPrompt
+  )
+}
 
 export const getProjectFileTreePrompt = (params: {
   fileContext: ProjectFileContext
@@ -159,8 +181,8 @@ ${truncationNote}
 }
 
 const windowsNote = `
-Note: many commands in the terminal are different on Windows.
-For example, the mkdir command is \`mkdir\` instead of \`mkdir -p\`. Instead of grep, use \`findstr\`. Instead of \`ls\` use \`dir\` to list files. Instead of \`mv\` use \`move\`. Instead of \`rm\` use \`del\`. Instead of \`cp\` use \`copy\`. Unless the user is in Powershell, in which case you should use the Powershell commands instead.
+Note: terminal commands run in bash on Windows too, not cmd.exe or PowerShell.
+Use POSIX syntax — \`ls\`, \`mv\`, \`rm\`, \`cp\`, \`grep\` — and never \`dir\`, \`move\`, \`del\`, \`copy\`, \`findstr\` or PowerShell cmdlets. Write paths with forward slashes: bash treats \`\\\` as an escape, so \`C:\\Users\\me\` becomes \`C:Usersme\`.
 `.trim()
 
 export const getSystemInfoPrompt = (fileContext: ProjectFileContext) => {
@@ -194,23 +216,62 @@ export const getGitChangesPrompt = (fileContext: ProjectFileContext) => {
   if (!gitChanges) {
     return ''
   }
-  const maxLength = 30_000
+
+  const historyCountPrefix =
+    gitChanges.historyScanTruncated || gitChanges.historyIsShallow
+      ? 'at least '
+      : ''
+  const contributorStats =
+    gitChanges.humanContributorCount !== undefined
+      ? [
+          `human_contributors: ${historyCountPrefix}${gitChanges.humanContributorCount}`,
+          `bot_contributors: ${historyCountPrefix}${gitChanges.botContributorCount ?? 0}`,
+        ]
+      : gitChanges.contributorCount !== undefined
+        ? [`contributor_identities: ${gitChanges.contributorCount}`]
+        : []
+  const stats = [
+    gitChanges.branch ? `branch: ${gitChanges.branch}` : undefined,
+    `repository_visibility: ${gitChanges.repositoryVisibility ?? 'unknown'}`,
+    gitChanges.fileCount !== undefined
+      ? `indexed_project_files: ${gitChanges.fileCountIsLowerBound ? 'at least ' : ''}${gitChanges.fileCount}`
+      : undefined,
+    gitChanges.testFileCount !== undefined
+      ? `detected_test_files: ${gitChanges.fileCountIsLowerBound ? 'at least ' : ''}${gitChanges.testFileCount}`
+      : undefined,
+    gitChanges.commitCount !== undefined
+      ? `${gitChanges.historyIsShallow ? 'commits_in_shallow_clone' : 'total_commits'}: ${gitChanges.commitCount}`
+      : undefined,
+    gitChanges.commitDatePercentiles
+      ? `${gitChanges.historyIsShallow ? 'commit_dates_available_history' : 'commit_dates'}: first=${gitChanges.commitDatePercentiles.p0}, p25=${gitChanges.commitDatePercentiles.p25}, p50=${gitChanges.commitDatePercentiles.p50}, p75=${gitChanges.commitDatePercentiles.p75}, p100=${gitChanges.commitDatePercentiles.p100}`
+      : undefined,
+    gitChanges.mergedPullRequestCount !== undefined
+      ? `merged_pull_requests_detected: ${historyCountPrefix}${gitChanges.mergedPullRequestCount}`
+      : undefined,
+    ...contributorStats,
+  ].filter((line): line is string => line !== undefined)
+  const changedFiles = gitChanges.changedFiles ?? []
+  const gitAvailable =
+    gitChanges.gitAvailable ?? gitChanges.changedFiles !== undefined
+  const changedFileCount = gitChanges.changedFileCount ?? changedFiles.length
+  const countLabel = gitChanges.changedFileScanTruncated
+    ? `at least ${changedFileCount}`
+    : `${changedFileCount}`
+  const changedFilesLabel =
+    changedFiles.length < changedFileCount ||
+    gitChanges.changedFileScanTruncated
+      ? `showing ${changedFiles.length} of ${countLabel}`
+      : `${changedFileCount}`
+
   return `
-Git Changes:
-<git_status>
-${truncateString(gitChanges.status, maxLength / 10)}
-${closeXml('git_status')}
+Git repository summary captured at the start of the conversation. Repository visibility is a best-effort authenticated GitHub lookup; unknown does not imply private. Commit dates are chronological percentiles by committer date. A shallow clone labels them as available history rather than the full project timeline; truncated history omits them. Local file discovery respects repository ignore rules. Test files are detected from common language-agnostic path and filename conventions without reading file contents. Human and bot contributors are separated conservatively after Git mailmap alias canonicalization; aliases absent from .mailmap can still remain separate. Merged pull requests are detected from common merge and squash commit-subject formats, so histories that omit PR numbers can undercount them.
+<repository_stats>
+${stats.join('\n')}
+${closeXml('repository_stats')}
 
-<git_diff>
-${truncateString(gitChanges.diff, maxLength)}
-${closeXml('git_diff')}
-
-<git_diff_cached>
-${truncateString(gitChanges.diffCached, maxLength)}
-${closeXml('git_diff_cached')}
-
-<git_commit_messages_most_recent_first>
-${truncateString(gitChanges.lastCommitMessages, maxLength / 10)}
-${closeXml('git_commit_messages_most_recent_first')}
+Changed file paths (${gitAvailable ? changedFilesLabel : 'unavailable'}):
+<changed_file_paths>
+${gitAvailable ? (changedFiles.length > 0 ? changedFiles.join('\n') : '(none)') : '(Git metadata unavailable to this host)'}
+${closeXml('changed_file_paths')}
 `.trim()
 }

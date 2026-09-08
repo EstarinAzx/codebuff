@@ -1,6 +1,11 @@
-import { jsonToolResult } from '@codebuff/common/util/messages'
 import { SKILLS_DIR_NAME, SKILL_FILE_NAME } from '@codebuff/common/constants/skills'
-import { SkillFrontmatterSchema, type SkillDefinition } from '@codebuff/common/types/skill'
+import {
+  createSkillDefinition,
+  SkillFrontmatterSchema,
+  type SkillDefinition,
+} from '@codebuff/common/types/skill'
+import { isSkillModelInvocable } from '@codebuff/common/util/skills'
+import { jsonToolResult } from '@codebuff/common/util/messages'
 import fs from 'fs'
 import path from 'path'
 import os from 'os'
@@ -20,15 +25,34 @@ import type { ProjectFileContext } from '@codebuff/common/util/file'
 async function loadSkillFromDisk(
   projectRoot: string,
   skillName: string,
+  includeHomeSkills: boolean,
 ): Promise<SkillDefinition | null> {
   const home = os.homedir()
   const skillsDirs = [
-    // Global directories first
-    path.join(home, '.agents', SKILLS_DIR_NAME),
-    path.join(home, '.claude', SKILLS_DIR_NAME),
-    // Project directories (later takes precedence for overwriting)
+    // Match loadSkills precedence: project over global, .agents over .claude.
+    // This function returns the first match, so highest precedence comes first.
     path.join(projectRoot, '.agents', SKILLS_DIR_NAME),
     path.join(projectRoot, '.claude', SKILLS_DIR_NAME),
+    // OFF BY DEFAULT, and deliberately a parameter rather than a constant.
+    //
+    // `os.homedir()` is the HOST's home, which is only the right place to look
+    // when this process belongs to the user whose skills these are — an
+    // interactive CLI on their own machine. On a server the same call resolves
+    // to the SERVER's home while `projectRoot` points at someone else's
+    // checkout: on Freebuff Cloud that is a Daytona sandbox path, so a skill
+    // sitting in the web server's `~/.agents/skills` would be served in place
+    // of the repo's own, and the result of this lookup WINS over the
+    // pre-loaded cache (`diskSkill ?? skills[name]` below).
+    //
+    // `loadSkills` was given exactly this opt-in
+    // (`LoadSkillsOptions.includeHomeSkills`) for exactly this reason; the fix
+    // never reached this second, independent lookup.
+    ...(includeHomeSkills
+      ? [
+          path.join(home, '.agents', SKILLS_DIR_NAME),
+          path.join(home, '.claude', SKILLS_DIR_NAME),
+        ]
+      : []),
   ]
 
   for (const skillsDir of skillsDirs) {
@@ -63,14 +87,11 @@ async function loadSkillFromDisk(
         continue
       }
 
-      return {
-        name: frontmatter.name,
-        description: frontmatter.description,
+      return createSkillDefinition({
+        frontmatter,
         content,
-        license: frontmatter.license,
         filePath: skillFilePath,
-        metadata: frontmatter.metadata,
-      }
+      })
     } catch {
       // Skill doesn't exist in this directory, try the next one
       continue
@@ -98,23 +119,35 @@ export const handleSkill = (async (params: {
   // session (e.g. via `npx skills add`) are picked up with their latest
   // contents. Fall back to the cache pre-loaded at session start.
   const diskSkill = fileContext.projectRoot
-    ? await loadSkillFromDisk(fileContext.projectRoot, name)
+    ? await loadSkillFromDisk(
+        fileContext.projectRoot,
+        name,
+        fileContext.includeHomeSkills === true,
+      )
     : null
 
   const skill = diskSkill ?? skills[name]
+  const isUnavailableToModel =
+    skill !== undefined && !isSkillModelInvocable(skill)
 
-  if (!skill) {
-    const availableSkills = Object.keys(skills)
+  if (!skill || isUnavailableToModel) {
+    const availableSkills = Object.values(skills)
+      .filter(isSkillModelInvocable)
+      .map((availableSkill) => availableSkill.name)
     const suggestion =
       availableSkills.length > 0
         ? ` Available skills: ${availableSkills.join(', ')}. You can also load skills created during this session by name.`
         : ' No skills are currently available. You can load skills created during this session by name.'
 
+    const reason = isUnavailableToModel
+      ? `Skill '${name}' can only be invoked by the user.`
+      : `Skill '${name}' not found.`
+
     return {
       output: jsonToolResult({
         name,
         description: '',
-        content: `Error: Skill '${name}' not found.${suggestion}`,
+        content: `Error: ${reason}${suggestion}`,
       }),
     }
   }

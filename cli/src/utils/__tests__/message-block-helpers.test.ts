@@ -16,6 +16,7 @@ import {
   scrubPlanTagsInBlocks,
   insertPlanBlock,
   moveSpawnAgentBlock,
+  stripHiddenAgentBlocks,
 } from '../message-block-helpers'
 
 import type {
@@ -25,6 +26,71 @@ import type {
   TextContentBlock,
   ToolContentBlock,
 } from '../../types/chat'
+
+describe('stripHiddenAgentBlocks', () => {
+  const agentBlock = (
+    agentType: string,
+    blocks?: ContentBlock[],
+  ): AgentContentBlock => ({
+    type: 'agent',
+    agentId: `id-${agentType}`,
+    agentName: agentType,
+    agentType,
+    content: '',
+    status: 'complete',
+    ...(blocks ? { blocks } : {}),
+  })
+
+  test('removes context-pruner blocks (bundled and qualified ids)', () => {
+    const blocks: ContentBlock[] = [
+      agentBlock('context-pruner'),
+      agentBlock('codebuff/context-pruner@1.0.0'),
+      agentBlock('file-picker'),
+    ]
+
+    const result = stripHiddenAgentBlocks(blocks)
+
+    expect(result).toHaveLength(1)
+    expect((result[0] as AgentContentBlock).agentType).toBe('file-picker')
+  })
+
+  test('removes hidden blocks nested under other agents', () => {
+    const blocks: ContentBlock[] = [
+      agentBlock('base2', [
+        agentBlock('context-pruner'),
+        agentBlock('file-picker'),
+      ]),
+    ]
+
+    const result = stripHiddenAgentBlocks(blocks)
+
+    const children = (result[0] as AgentContentBlock).blocks!
+    expect(children).toHaveLength(1)
+    expect((children[0] as AgentContentBlock).agentType).toBe('file-picker')
+  })
+
+  test('returns the same array when nothing is hidden', () => {
+    const blocks: ContentBlock[] = [
+      agentBlock('file-picker'),
+      { type: 'text', content: 'hello' },
+    ]
+
+    expect(stripHiddenAgentBlocks(blocks)).toBe(blocks)
+  })
+
+  test('tolerates corrupted persisted shapes without throwing', () => {
+    const corruptedEntries = [
+      null,
+      { type: 'agent', agentId: 'a1', status: 'complete' }, // missing agentType
+      { ...agentBlock('base2'), blocks: 'not-an-array' },
+    ] as unknown as ContentBlock[]
+
+    expect(stripHiddenAgentBlocks(corruptedEntries)).toBe(corruptedEntries)
+    expect(
+      stripHiddenAgentBlocks('not-an-array' as unknown as ContentBlock[]),
+    ).toBe('not-an-array' as unknown as ContentBlock[])
+  })
+})
 
 describe('getAgentBaseName', () => {
   test('extracts base name from scoped versioned name', () => {
@@ -188,7 +254,10 @@ describe('autoCollapseBlocks', () => {
     ]
     const result = autoCollapseBlocks(blocks)
     expect(result[0]).toHaveProperty('isCollapsed', true)
-    expect((result[0] as AgentContentBlock).blocks![0]).toHaveProperty('isCollapsed', true)
+    expect((result[0] as AgentContentBlock).blocks![0]).toHaveProperty(
+      'isCollapsed',
+      true,
+    )
   })
 
   test('collapses tool blocks', () => {
@@ -568,7 +637,9 @@ describe('updateBlocksRecursively', () => {
       ...block,
       status: 'complete' as const,
     }))
-    expect((result[0] as AgentContentBlock).blocks![0]).toMatchObject({ status: 'complete' })
+    expect((result[0] as AgentContentBlock).blocks![0]).toMatchObject({
+      status: 'complete',
+    })
   })
 
   test('returns original array if target not found', () => {
@@ -904,6 +975,7 @@ describe('extractBlockById', () => {
       blocks,
       'nested-child',
     )
+    expect(remainingBlocks).toHaveLength(1)
     expect((remainingBlocks[0] as AgentContentBlock).blocks).toHaveLength(0)
     expect(extractedBlock).not.toBeNull()
     expect((extractedBlock as AgentContentBlock).agentId).toBe('nested-child')
@@ -945,10 +1017,15 @@ describe('extractBlockById', () => {
       blocks,
       'extract-me',
     )
+    expect(remainingBlocks).toHaveLength(1)
     const parentBlock = remainingBlocks[0] as AgentContentBlock
     expect(parentBlock.blocks).toHaveLength(2)
-    expect((parentBlock.blocks![0] as TextContentBlock).content).toBe('Keep this')
-    expect((parentBlock.blocks![1] as TextContentBlock).content).toBe('Keep this too')
+    expect((parentBlock.blocks![0] as TextContentBlock).content).toBe(
+      'Keep this',
+    )
+    expect((parentBlock.blocks![1] as TextContentBlock).content).toBe(
+      'Keep this too',
+    )
     expect(extractedBlock).not.toBeNull()
   })
 })
@@ -960,7 +1037,11 @@ describe('transformAskUserBlocks', () => {
         type: 'tool',
         toolCallId: 'tool-123',
         toolName: 'ask_user',
-        input: { questions: [{ question: 'Pick one', options: [{ label: 'A' }, { label: 'B' }] }] },
+        input: {
+          questions: [
+            { question: 'Pick one', options: [{ label: 'A' }, { label: 'B' }] },
+          ],
+        },
       },
     ]
     const result = transformAskUserBlocks(blocks, {
@@ -969,7 +1050,9 @@ describe('transformAskUserBlocks', () => {
     })
     expect(result[0].type).toBe('ask-user')
     const askUserBlock = result[0] as AskUserContentBlock
-    expect(askUserBlock.answers).toEqual([{ questionIndex: 0, selectedOption: 'A' }])
+    expect(askUserBlock.answers).toEqual([
+      { questionIndex: 0, selectedOption: 'A' },
+    ])
     expect(askUserBlock.questions).toEqual([
       { question: 'Pick one', options: [{ label: 'A' }, { label: 'B' }] },
     ])
@@ -981,7 +1064,11 @@ describe('transformAskUserBlocks', () => {
         type: 'tool',
         toolCallId: 'tool-123',
         toolName: 'ask_user',
-        input: { questions: [{ question: 'Pick one', options: [{ label: 'A' }, { label: 'B' }] }] },
+        input: {
+          questions: [
+            { question: 'Pick one', options: [{ label: 'A' }, { label: 'B' }] },
+          ],
+        },
       },
     ]
     const result = transformAskUserBlocks(blocks, {
@@ -1110,6 +1197,22 @@ describe('updateToolBlockWithOutput', () => {
     expect((result[0] as ToolContentBlock).output).toBe('outerr')
   })
 
+  test('falls back to formatted output when terminal payload has no stdout/stderr', () => {
+    const blocks: ContentBlock[] = [
+      {
+        type: 'tool',
+        toolCallId: 'tool-123',
+        toolName: 'run_terminal_command',
+        input: { command: 'cmd' },
+      },
+    ]
+    const result = updateToolBlockWithOutput(blocks, {
+      toolCallId: 'tool-123',
+      toolOutput: [{ type: 'json', value: { exitCode: 1 } }],
+    })
+    expect((result[0] as ToolContentBlock).output).toBe('exitCode: 1')
+  })
+
   test('does not update non-matching tool block', () => {
     const blocks: ContentBlock[] = [
       {
@@ -1150,7 +1253,9 @@ describe('updateToolBlockWithOutput', () => {
       toolCallId: 'tool-123',
       toolOutput: [{ type: 'text', value: 'contents' }],
     })
-    expect(((result[0] as AgentContentBlock).blocks![0] as ToolContentBlock).output).toBeDefined()
+    expect(
+      ((result[0] as AgentContentBlock).blocks![0] as ToolContentBlock).output,
+    ).toBeDefined()
   })
 
   test('returns same reference for unchanged nested blocks', () => {

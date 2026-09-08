@@ -6,6 +6,7 @@
 
 import { has } from 'lodash'
 
+import { AI_MESSAGE_ID_PREFIX, generateAiMessageId } from './ai-message-id'
 import { markRunningAgentsAsCancelled } from './block-operations'
 import { shouldHideAgent } from './constants'
 import { formatTimestamp } from './helpers'
@@ -13,19 +14,19 @@ import {
   appendInterruptionNotice,
   autoCollapseBlocks,
   createAgentBlock,
+  stripHiddenAgentBlocks,
 } from './message-block-helpers'
 
 import type { AgentMode } from './constants'
-import type {
-  ChatMessage,
-  ContentBlock,
-} from '../types/chat'
+import type { ChatMessage, ContentBlock } from '../types/chat'
 
 // -----------------------------------------------------------------------------
 // Message Creation Helpers
 // -----------------------------------------------------------------------------
 
-export const createModeDividerMessage = (agentMode: AgentMode): ChatMessage => ({
+export const createModeDividerMessage = (
+  agentMode: AgentMode,
+): ChatMessage => ({
   id: `divider-${Date.now()}`,
   variant: 'ai',
   content: '',
@@ -44,6 +45,7 @@ export const createAiMessageShell = (messageId: string): ChatMessage => ({
   content: '',
   blocks: [],
   timestamp: formatTimestamp(),
+  metadata: { allowInlineAds: true },
 })
 
 export const createErrorMessage = (content: string): ChatMessage => ({
@@ -53,12 +55,10 @@ export const createErrorMessage = (content: string): ChatMessage => ({
   timestamp: formatTimestamp(),
 })
 
-/** Id prefix identifying streamed AI response shells; shared with
- * sanitizeRestoredMessages so the two can't silently drift apart. */
-export const AI_MESSAGE_ID_PREFIX = 'ai-'
-
-export const generateAiMessageId = (): string =>
-  `${AI_MESSAGE_ID_PREFIX}${Date.now()}-${Math.random().toString(16).slice(2)}`
+// Re-exported (imported above) from a dependency-free leaf module so lightweight
+// consumers can import the id prefix without dragging in this helper graph.
+// Shared with sanitizeRestoredMessages so the two can't silently drift apart.
+export { AI_MESSAGE_ID_PREFIX, generateAiMessageId }
 
 /**
  * A restored chat may contain an AI response that was still streaming when the
@@ -67,30 +67,46 @@ export const generateAiMessageId = (): string =>
  * Only touches streamed response shells (ids from generateAiMessageId) —
  * other 'ai'-variant messages (mode dividers, system notices, bash results)
  * are never marked complete by design.
+ *
+ * Also drops hidden agent blocks (e.g. context-pruner) that were persisted
+ * before live streams filtered them.
  */
 export const sanitizeRestoredMessages = (
   messages: ChatMessage[],
 ): ChatMessage[] =>
   messages.map((message) => {
+    let restoredMessage = message
+    if (message.metadata?.allowInlineAds) {
+      const { allowInlineAds: _, ...metadata } = message.metadata
+      restoredMessage = { ...message, metadata }
+    }
+
+    if (restoredMessage.blocks) {
+      const blocks = stripHiddenAgentBlocks(restoredMessage.blocks)
+      if (blocks !== restoredMessage.blocks) {
+        restoredMessage = { ...restoredMessage, blocks }
+      }
+    }
+
     if (
-      message.variant !== 'ai' ||
-      !message.id.startsWith(AI_MESSAGE_ID_PREFIX) ||
-      message.isComplete
+      restoredMessage.variant !== 'ai' ||
+      !restoredMessage.id.startsWith(AI_MESSAGE_ID_PREFIX) ||
+      restoredMessage.isComplete
     ) {
-      return message
+      return restoredMessage
     }
     try {
       return {
-        ...message,
+        ...restoredMessage,
         isComplete: true,
         blocks: appendInterruptionNotice(
-          markRunningAgentsAsCancelled(message.blocks ?? []),
+          markRunningAgentsAsCancelled(restoredMessage.blocks ?? []),
         ),
       }
     } catch {
       // Corrupted persisted blocks (e.g. null entries) must not prevent the
       // chat from restoring; keep the message as-is.
-      return { ...message, isComplete: true }
+      return { ...restoredMessage, isComplete: true }
     }
   })
 
@@ -175,7 +191,9 @@ export const markMessageComplete = (
   return {
     ...message,
     isComplete: true,
-    ...(options?.completionTime ? { completionTime: options.completionTime } : {}),
+    ...(options?.completionTime
+      ? { completionTime: options.completionTime }
+      : {}),
     ...(options?.credits !== undefined ? { credits: options.credits } : {}),
     metadata,
   }

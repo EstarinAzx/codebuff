@@ -4,15 +4,15 @@ import {
   normalizeAgentIdForLookup,
   parseAgentId,
 } from '@codebuff/common/util/agent-id-parsing'
+import { dropUnansweredToolCalls } from '@codebuff/common/util/messages'
 import { generateCompactId } from '@codebuff/common/util/string'
 
-import { loopAgentSteps } from '../../../run-agent-step'
+import {
+  UNTRACKED_RUN_ID_PREFIX,
+  loopAgentSteps,
+} from '../../../run-agent-step'
 import { getAgentTemplate } from '../../../templates/agent-registry'
 import { formatValueForError } from '../../../util/format-value'
-import {
-  filterUnfinishedToolCalls,
-  withSystemTags,
-} from '../../../util/messages'
 
 import type { AgentTemplate } from '@codebuff/common/types/agent-template'
 import type {
@@ -254,26 +254,56 @@ export function createAgentState(
   agentTemplate: AgentTemplate,
   parentAgentState: AgentState,
   agentContext: Record<string, Subgoal>,
+  spawnBoundary: {
+    toolCallId: string
+    currentAssistantMessages?: readonly Message[]
+  },
 ): AgentState {
   const agentId = generateCompactId()
 
-  // When including message history, filter out any tool calls that don't have
-  // corresponding tool responses. This prevents the spawned agent from seeing
-  // unfinished tool calls which throw errors in the Anthropic API.
+  // Programmatic agents add their tool call to history before executing it,
+  // while streamed tool calls are added after execution. Make both paths give
+  // the child the same transcript: everything before the call that spawned it.
+  // The child's prompt is appended as a normal user message by loopAgentSteps.
   let messageHistory: Message[] = []
 
   if (agentTemplate.includeMessageHistory) {
-    messageHistory = filterUnfinishedToolCalls(parentAgentState.messageHistory)
-    messageHistory.push({
-      role: 'user',
-      content: [
-        {
-          type: 'text',
-          text: withSystemTags(`Subagent ${agentType} has been spawned.`),
-        },
-      ],
-      tags: ['SUBAGENT_SPAWN'],
-    })
+    const historyBeforeSpawn: Message[] = []
+    const historyAtSpawn = [
+      ...parentAgentState.messageHistory,
+      ...(spawnBoundary.currentAssistantMessages ?? []),
+    ]
+    for (const message of historyAtSpawn) {
+      if (message.role !== 'assistant' || !Array.isArray(message.content)) {
+        historyBeforeSpawn.push(message)
+        continue
+      }
+
+      const spawnPartIndex = message.content.findIndex(
+        (part) =>
+          part.type === 'tool-call' &&
+          part.toolCallId === spawnBoundary.toolCallId,
+      )
+      if (spawnPartIndex === -1) {
+        historyBeforeSpawn.push(message)
+        continue
+      }
+
+      const contentBeforeSpawn = message.content.slice(0, spawnPartIndex)
+      if (contentBeforeSpawn.length > 0) {
+        historyBeforeSpawn.push({ ...message, content: contentBeforeSpawn })
+      }
+      break
+    }
+
+    // Session state comes from clients and can contain older interrupted tool
+    // calls and synthetic spawn announcements from earlier releases. Keep
+    // filtering both so inherited history is provider-safe and unambiguous.
+    messageHistory = dropUnansweredToolCalls(
+      historyBeforeSpawn.filter(
+        (message) => !message.tags?.includes('SUBAGENT_SPAWN'),
+      ),
+    )
   }
 
   return {
@@ -397,7 +427,12 @@ export async function executeSubagent(
     params: spawnParams,
   })
 
-  if (result.agentState.runId) {
+  // Untracked runs (context-pruner) have no ledger row, so their ids must not
+  // be reported as children on the parent's tracked steps.
+  if (
+    result.agentState.runId &&
+    !result.agentState.runId.startsWith(UNTRACKED_RUN_ID_PREFIX)
+  ) {
     parentAgentState.childRunIds.push(result.agentState.runId)
   }
 

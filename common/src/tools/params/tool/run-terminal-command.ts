@@ -4,6 +4,39 @@ import { $getNativeToolCallExampleString, jsonToolResultSchema } from '../utils'
 
 import type { $ToolParams } from '../../constants'
 
+/**
+ * Ceiling on a model-chosen SYNC command timeout.
+ *
+ * The value came straight from the model to the client with nothing in between
+ * — no clamp anywhere in the runtime — and the only guidance was "Default 30".
+ * In practice models picked 3-minute, 10-minute and 50-minute budgets for work
+ * that finishes in seconds, and the cost of an over-long value is paid entirely
+ * by the user: when the command does hang, they wait the whole budget watching
+ * nothing happen.
+ *
+ * 10 minutes is above any legitimate SYNC command we ship (the longest bundled
+ * agent budget is the librarian's 180s `git clone`) while cutting the tail that
+ * makes a hang indistinguishable from a freeze. Genuinely open-ended work has
+ * two better doors that this does not touch: `-1` for an explicit indefinite
+ * wait, and `process_type: BACKGROUND` for long-running processes.
+ */
+export const MAX_TERMINAL_TIMEOUT_SECONDS = 600
+export const MAX_TERMINAL_TIMEOUT_MINUTES = MAX_TERMINAL_TIMEOUT_SECONDS / 60
+
+/** Clamp a model-supplied timeout, preserving the -1 "no timeout" sentinel and
+ *  leaving an absent value to the schema default. */
+export function clampTerminalTimeoutSeconds(
+  seconds: number | undefined,
+): number | undefined {
+  if (seconds === undefined) return undefined
+  if (seconds === -1) return -1
+  if (!Number.isFinite(seconds)) return MAX_TERMINAL_TIMEOUT_SECONDS
+  // A zero or negative value other than -1 is nonsense rather than a request
+  // for a short wait; fall back to the default instead of failing instantly.
+  if (seconds <= 0) return 30
+  return Math.min(seconds, MAX_TERMINAL_TIMEOUT_SECONDS)
+}
+
 export const terminalCommandOutputSchema = z.union([
   z.object({
     command: z.string(),
@@ -32,7 +65,60 @@ export const terminalCommandOutputSchema = z.union([
   }),
 ])
 
-export const gitCommitGuidePrompt = `
+/**
+ * The commit guidance, with or without the agent attribution trailer.
+ *
+ * `attribution: false` exists for ONE caller shape: a run whose commit lands in
+ * somebody else's repository on somebody else's behalf. Today that is a
+ * sponsored proposal — an advertiser-authored change, committed on a branch in
+ * a user's own checkout, delivered through a pull request whose body already
+ * says where it came from. A `Co-Authored-By` line there attributes the change
+ * to us in a stranger's history, on a change we did not author, redundantly.
+ *
+ * Suppressed in the TOOL DESCRIPTION rather than by adding a "do not add a
+ * trailer" bullet to the run's prompt, because this description ships a worked
+ * `git commit` example containing the trailer, and a prose instruction losing
+ * to a concrete example is the ordinary failure here. The variant removes the
+ * footer step and the example both.
+ *
+ * The default is byte-identical to what shipped before, so a normal user run is
+ * unchanged.
+ */
+export function buildGitCommitGuidePrompt(options: {
+  attribution: boolean
+}): string {
+  return GIT_COMMIT_GUIDE_HEAD.concat(
+    options.attribution ? GIT_COMMIT_ATTRIBUTION_STEP : GIT_COMMIT_PLAIN_STEP,
+    GIT_COMMIT_GUIDE_TAIL,
+  )
+}
+
+const GIT_COMMIT_ATTRIBUTION_STEP = `4. **Create the commit, ending with this specific footer:**
+   \`\`\`
+   Generated with Codebuff 🤖
+   Co-Authored-By: Codebuff <noreply@codebuff.com>
+   \`\`\`
+   Commands run in bash on every OS (Git Bash on Windows), so always use HEREDOC syntax to format the message:
+   \`\`\`
+   git commit -m "$(cat <<'EOF'
+   Your commit message here.
+
+   🤖 Generated with Codebuff
+   Co-Authored-By: Codebuff <noreply@codebuff.com>
+   EOF
+   )"
+   \`\`\``
+
+const GIT_COMMIT_PLAIN_STEP = `4. **Create the commit.** Do NOT add any trailer, footer, co-author line or attribution of any kind to the commit message — no \`Co-Authored-By\`, no "Generated with" line. The message is the message and nothing else.
+   Commands run in bash on every OS (Git Bash on Windows), so always use HEREDOC syntax to format the message:
+   \`\`\`
+   git commit -m "$(cat <<'EOF'
+   Your commit message here.
+   EOF
+   )"
+   \`\`\``
+
+const GIT_COMMIT_GUIDE_HEAD = `
 ### Using git to commit changes
 
 When the user requests a new git commit, please follow these steps closely:
@@ -57,33 +143,9 @@ When the user requests a new git commit, please follow these steps closely:
    - Ensure the message provides clarity—avoid generic or vague terms like “Update” or “Fix” without context.
    - Revisit your draft to confirm it truly reflects the changes and their intention.
 
-4. **Create the commit, ending with this specific footer:**
-   \`\`\`
-   Generated with Codebuff 🤖
-   Co-Authored-By: Codebuff <noreply@codebuff.com>
-   \`\`\`
-   To maintain proper formatting, use cross-platform compatible commit messages:
-   
-   **For Unix/bash shells:**
-   \`\`\`
-   git commit -m "$(cat <<'EOF'
-   Your commit message here.
+`
 
-   🤖 Generated with Codebuff
-   Co-Authored-By: Codebuff <noreply@codebuff.com>
-   EOF
-   )"
-   \`\`\`
-   
-   **For Windows Command Prompt:**
-   \`\`\`
-   git commit -m "Your commit message here.
-
-   🤖 Generated with Codebuff
-   Co-Authored-By: Codebuff <noreply@codebuff.com>"
-   \`\`\`
-   
-   Always detect the platform and use the appropriate syntax. HEREDOC syntax (\`<<'EOF'\`) only works in bash/Unix shells and will fail on Windows Command Prompt.
+const GIT_COMMIT_GUIDE_TAIL = `
 
 **Important details**
 
@@ -95,6 +157,11 @@ When the user requests a new git commit, please follow these steps closely:
 - Make sure your commit message is concise yet descriptive, focusing on the intention behind the changes rather than merely describing them.
 `
 
+/** The default guidance. Byte-identical to what shipped before it was split. */
+export const gitCommitGuidePrompt = buildGitCommitGuidePrompt({
+  attribution: true,
+})
+
 const toolName = 'run_terminal_command'
 const endsAgentStep = true
 const inputSchema = z
@@ -103,7 +170,9 @@ const inputSchema = z
     command: z
       .string()
       .min(1, 'Command cannot be empty')
-      .describe(`CLI command valid for user's OS.`),
+      .describe(
+        `CLI command. Always executed with bash (Git Bash on Windows), so use POSIX syntax on every OS: \`mv\`/\`rm\`, \`/dev/null\`, heredocs. Never use cmd.exe syntax like \`del\`, \`move\`, or \`> nul\` — on Windows \`> nul\` creates a literal file named "nul" that is very hard to delete.`,
+      ),
     process_type: z
       .enum(['SYNC', 'BACKGROUND'])
       .default('SYNC')
@@ -120,18 +189,19 @@ const inputSchema = z
       .number()
       .default(30)
       .optional()
+      .transform(clampTerminalTimeoutSeconds)
       .describe(
-        `Set to -1 for no timeout. Does not apply for BACKGROUND commands. Default 30`,
+        `How long to wait, in seconds. Default 30, which is right for almost everything — omit this field unless the command genuinely runs longer. Budget for the command you are actually running (a typecheck or test run is tens of seconds, not minutes); an over-long value does not make a command safer, it just means you wait that long when something hangs. Values above ${MAX_TERMINAL_TIMEOUT_SECONDS} (${MAX_TERMINAL_TIMEOUT_MINUTES} minutes) are clamped. Set to -1 to wait indefinitely, for genuinely open-ended commands only. Does not apply for BACKGROUND commands — use those for long-running processes instead.`,
       ),
   })
   .describe(
     `Execute a CLI command from the **project root** (different from the user's cwd).`,
   )
-const description = `
+const buildDescription = (options: { attribution: boolean }) => `
 Stick to these use cases:
 1. Typechecking the project or running build (e.g., "npm run build"). Reading the output can help you edit code to fix build errors. If possible, use an option that performs checks but doesn't emit files, e.g. \`tsc --noEmit\`.
 2. Running tests (e.g., "npm test"). Reading the output can help you edit code to fix failing tests. Or, you could write new unit tests and then run them.
-3. Moving, renaming, or deleting files and directories. These actions can be vital for refactoring requests. Use commands like \`mv\`/\`move\` or \`rm\`/\`del\`.
+3. Moving, renaming, or deleting files and directories. These actions can be vital for refactoring requests. Use \`mv\` or \`rm\` (commands run in bash on every OS, including Windows — do not use \`move\`/\`del\`).
 
 Most likely, you should ask for permission for any other type of command you want to run. If asking for permission, show the user the command you want to run using \`\`\` tags and *do not* use the tool call format, e.g.:
 \`\`\`bash
@@ -153,7 +223,7 @@ Notes:
 - If the user references a specific file, it could be either from their cwd or from the project root. You **must** determine which they are referring to (either infer or ask). Then, you must specify the path relative to the project root (or use the cwd parameter)
 - Commands can succeed without giving any output, e.g. if no type errors were found.
 
-${gitCommitGuidePrompt}
+${buildGitCommitGuidePrompt(options)}
 
 Example:
 ${$getNativeToolCallExampleString({
@@ -169,14 +239,29 @@ ${$getNativeToolCallExampleString({
   toolName,
   inputSchema,
   input: {
-    command: `git commit -m "Your commit message here.
+    command: options.attribution
+      ? `git commit -m "Your commit message here.
 
 🤖 Generated with Codebuff
-Co-Authored-By: Codebuff <noreply@codebuff.com>"`,
+Co-Authored-By: Codebuff <noreply@codebuff.com>"`
+      : `git commit -m "Your commit message here."`,
   },
   endsAgentStep,
 })}
     `.trim()
+
+const description = buildDescription({ attribution: true })
+
+/**
+ * The `run_terminal_command` description with every agent-attribution trailer
+ * removed, for a run that commits into somebody else's repository.
+ *
+ * Selected per run in `getToolSet`, off the agent definition's
+ * `suppressCommitAttribution`. See {@link buildGitCommitGuidePrompt}.
+ */
+export const runTerminalCommandNoAttributionDescription = buildDescription({
+  attribution: false,
+})
 
 export const runTerminalCommandParams = {
   toolName,

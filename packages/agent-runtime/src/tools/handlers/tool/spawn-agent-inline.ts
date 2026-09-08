@@ -16,6 +16,7 @@ import type {
 import type { AgentTemplate } from '@codebuff/common/types/agent-template'
 import type { Logger } from '@codebuff/common/types/contracts/logger'
 import type { ParamsExcluding } from '@codebuff/common/types/function-params'
+import type { Message } from '@codebuff/common/types/messages/codebuff-message'
 import type { PrintModeEvent } from '@codebuff/common/types/print-mode'
 import type { AgentState } from '@codebuff/common/types/session-state'
 import type { ProjectFileContext } from '@codebuff/common/util/file'
@@ -30,6 +31,7 @@ export const handleSpawnAgentInline = (async (
     agentState: AgentState
     agentTemplate: AgentTemplate
     clientSessionId: string
+    currentAssistantMessages?: readonly Message[]
     fileContext: ProjectFileContext
     fingerprintId: string
     localAgentTemplates: Record<string, AgentTemplate>
@@ -60,11 +62,13 @@ export const handleSpawnAgentInline = (async (
 
     agentState: parentAgentState,
     agentTemplate: parentAgentTemplate,
+    currentAssistantMessages = [],
     fingerprintId,
     system,
     tools: parentTools,
     userInputId,
     writeToClient,
+    sendSubagentChunk,
     logger,
   } = params
   const {
@@ -101,10 +105,15 @@ export const handleSpawnAgentInline = (async (
       inlineTemplate,
       parentAgentState,
       parentAgentState.agentContext,
+      {
+        toolCallId: toolCall.toolCallId,
+        currentAssistantMessages,
+      },
     ),
     systemPrompt: system,
     toolDefinitions: mapValues(parentTools, (tool) => ({
-      description: tool.description,
+      description:
+        typeof tool.description === 'string' ? tool.description : undefined,
       inputSchema: tool.inputSchema as {},
     })),
   }
@@ -127,10 +136,37 @@ export const handleSpawnAgentInline = (async (
     parentSystemPrompt: system,
     parentTools,
     onResponseChunk: (chunk) => {
-      // Inherits parent's onResponseChunk, except for context-pruner (TODO: add an option for it to be silent?)
-      if (agentType !== 'context-pruner') {
-        writeToClient(chunk)
+      // Context pruning is internal and its raw summary would be noisy in the
+      // client, but lifecycle events still need to flow so the UI can explain
+      // the otherwise silent pause.
+      if (typeof chunk === 'string') {
+        if (agentType !== 'context-pruner') {
+          sendSubagentChunk({
+            userInputId,
+            agentId: childAgentState.agentId,
+            agentType,
+            chunk,
+            prompt,
+          })
+        }
+        return
       }
+      const isLifecycleEvent =
+        chunk.type === 'subagent_start' || chunk.type === 'subagent_finish'
+      if (agentType === 'context-pruner' && !isLifecycleEvent) return
+      if (chunk.type === 'text') {
+        if (chunk.text) {
+          sendSubagentChunk({
+            userInputId,
+            agentId: childAgentState.agentId,
+            agentType,
+            chunk: chunk.text,
+            prompt,
+          })
+        }
+        return
+      }
+      writeToClient(chunk)
     },
     clearUserPromptMessagesAfterResponse: false,
   })

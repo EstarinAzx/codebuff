@@ -6,10 +6,10 @@ describe('/new command', () => {
       '../command-registry.ts',
       import.meta.url,
     ).href
-    const projectFilesUrl = new URL(
-      '../../project-files.ts',
-      import.meta.url,
-    ).href
+    const projectFilesUrl = new URL('../../project-files.ts', import.meta.url)
+      .href
+    const activeRunUrl = new URL('../../utils/active-run.ts', import.meta.url)
+      .href
 
     const result = Bun.spawnSync({
       cmd: [
@@ -18,8 +18,18 @@ describe('/new command', () => {
         `
           import { findCommand } from ${JSON.stringify(commandRegistryUrl)}
           import { getCurrentChatId, setCurrentChatId } from ${JSON.stringify(projectFilesUrl)}
+          import { registerActiveRun } from ${JSON.stringify(activeRunUrl)}
 
           setCurrentChatId('previous-chat-id')
+
+          // Simulate an in-flight run: record which chat was current when the
+          // abort fired.
+          let abortedAtChatId = null
+          let stopReason = null
+          registerActiveRun('run-1', (reason) => {
+            abortedAtChatId = getCurrentChatId()
+            stopReason = reason
+          })
 
           const newCommand = findCommand('new')
           if (!newCommand) throw new Error('new command missing')
@@ -32,7 +42,6 @@ describe('/new command', () => {
               saveToHistory: noop,
               inputValue: '/new',
               setInputValue: noop,
-              stopStreaming: noop,
               setCanProcessQueue: noop,
             },
             '',
@@ -42,6 +51,20 @@ describe('/new command', () => {
             throw new Error(
               '/new did not rotate the chat id — the next save would overwrite the previous chat',
             )
+          }
+
+          if (abortedAtChatId === null) {
+            throw new Error(
+              '/new did not abort the in-flight run — an orphaned run would keep checkpointing across the chat switch',
+            )
+          }
+          if (abortedAtChatId !== 'previous-chat-id') {
+            throw new Error(
+              '/new aborted the run only after rotating the chat id — late writes could land in the new chat',
+            )
+          }
+          if (stopReason !== 'new-chat') {
+            throw new Error('/new did not use the new-chat cancellation policy')
           }
         `,
       ],

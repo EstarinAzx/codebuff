@@ -5,6 +5,7 @@ import {
   withCacheControl,
   withoutCacheControl,
   convertCbToModelMessages,
+  dropUnansweredToolCalls,
   systemMessage,
   userMessage,
   assistantMessage,
@@ -139,7 +140,275 @@ describe('withoutCacheControl', () => {
   })
 })
 
+describe('dropUnansweredToolCalls', () => {
+  const toolCall = (toolCallId: string) =>
+    assistantMessage({
+      type: 'tool-call',
+      toolCallId,
+      toolName: 'read_files',
+      input: { paths: ['README.md'] },
+    })
+
+  const toolResult = (toolCallId: string): Message => ({
+    role: 'tool',
+    toolCallId,
+    toolName: 'read_files',
+    content: jsonToolResult({ files: [] }),
+  })
+
+  it('returns valid history unchanged', () => {
+    const messages: Message[] = [
+      userMessage('start'),
+      toolCall('complete'),
+      toolResult('complete'),
+      assistantMessage('done'),
+    ]
+
+    expect(dropUnansweredToolCalls(messages)).toBe(messages)
+  })
+
+  it('repairs a partial run of consecutive assistant calls', () => {
+    const messages: Message[] = [
+      userMessage('start'),
+      toolCall('complete'),
+      toolCall('interrupted'),
+      toolResult('complete'),
+    ]
+
+    expect(dropUnansweredToolCalls(messages)).toEqual([
+      messages[0],
+      messages[1],
+      messages[3],
+    ])
+  })
+
+  it('removes only unanswered parts without mutating assistant metadata', () => {
+    const assistant = {
+      ...assistantMessage('working'),
+      content: [
+        { type: 'text' as const, text: 'working' },
+        toolCall('complete').content[0],
+        toolCall('interrupted').content[0],
+      ],
+      tags: ['important'],
+    }
+    const messages: Message[] = [assistant, toolResult('complete')]
+
+    expect(dropUnansweredToolCalls(messages)).toEqual([
+      {
+        ...assistant,
+        content: [assistant.content[0], assistant.content[1]],
+      },
+      messages[1],
+    ])
+    expect(assistant.content).toHaveLength(3)
+  })
+
+  it('preserves freestanding tool results', () => {
+    const messages: Message[] = [toolResult('orphan'), userMessage('next')]
+
+    expect(dropUnansweredToolCalls(messages)).toBe(messages)
+  })
+
+  it('preserves provider-executed calls without local results', () => {
+    const messages: Message[] = [
+      assistantMessage({
+        type: 'tool-call',
+        toolCallId: 'provider-call',
+        toolName: 'web_search',
+        input: { query: 'Freebuff' },
+        providerExecuted: true,
+      }),
+    ]
+
+    expect(dropUnansweredToolCalls(messages)).toBe(messages)
+  })
+})
+
 describe('convertCbToModelMessages', () => {
+  describe('unfinished tool-call repair', () => {
+    it('drops a call whose result arrives after a user boundary', () => {
+      const result = convertCbToModelMessages({
+        messages: [
+          userMessage('start'),
+          assistantMessage({
+            type: 'tool-call',
+            toolCallId: 'interrupted-call',
+            toolName: 'read_files',
+            input: { paths: ['README.md'] },
+          }),
+          userMessage('continue'),
+          {
+            role: 'tool',
+            toolCallId: 'interrupted-call',
+            toolName: 'read_files',
+            content: jsonToolResult({ files: [] }),
+          },
+        ],
+        includeCacheControl: false,
+      })
+
+      // The surviving user messages aggregate after the invalid assistant call
+      // is removed. A result later in history cannot answer across the user
+      // boundary, but freestanding tool results remain supported.
+      expect(result.map((message) => message.role)).toEqual(['user', 'tool'])
+      expect(result[0].content).toHaveLength(2)
+    })
+
+    // A media result rides a user message, and the AI SDK treats a user message
+    // as a boundary where every tool call issued so far must already be
+    // answered. Emitted inline it splits a batch of parallel calls and the
+    // sibling still pending throws MissingToolResultsError client-side, which
+    // wedges every later turn in the thread that replays the history.
+    it('keeps a media result from splitting a batch of parallel tool calls', () => {
+      const screenshot = (toolCallId: string): Message => ({
+        role: 'tool',
+        toolCallId,
+        toolName: 'preview_screenshot',
+        content: [
+          ...mediaToolResult({ data: 'base64data', mediaType: 'image/png' }),
+          ...jsonToolResult({ ok: true }),
+        ],
+      })
+      const readFiles = (toolCallId: string): Message => ({
+        role: 'tool',
+        toolCallId,
+        toolName: 'read_files',
+        content: jsonToolResult({ files: [] }),
+      })
+
+      const result = convertCbToModelMessages({
+        messages: [
+          userMessage('screenshot the preview and read the file'),
+          {
+            ...assistantMessage('working'),
+            content: [
+              {
+                type: 'tool-call',
+                toolCallId: 'call_shot',
+                toolName: 'preview_screenshot',
+                input: {},
+              },
+              {
+                type: 'tool-call',
+                toolCallId: 'call_read',
+                toolName: 'read_files',
+                input: {},
+              },
+            ],
+          },
+          screenshot('call_shot'),
+          readFiles('call_read'),
+        ],
+        includeCacheControl: false,
+      })
+
+      // Both results land before the image's user message, so no call is still
+      // pending at the boundary.
+      expect(result.map((message) => message.role)).toEqual([
+        'user',
+        'assistant',
+        'tool',
+        'tool',
+        'user',
+      ])
+      expect(result.at(-1)!.content).toEqual([
+        expect.objectContaining({ type: 'file' }),
+      ])
+    })
+
+    // Waiting on the answers, not merely on the next non-tool message: anything
+    // interleaved between a batch's results must not let the image out early.
+    it('holds media until a sibling result arrives after an interleaved message', () => {
+      const result = convertCbToModelMessages({
+        messages: [
+          userMessage('go'),
+          {
+            ...assistantMessage('working'),
+            content: [
+              {
+                type: 'tool-call',
+                toolCallId: 'call_shot',
+                toolName: 'preview_screenshot',
+                input: {},
+              },
+              {
+                type: 'tool-call',
+                toolCallId: 'call_read',
+                toolName: 'read_files',
+                input: {},
+              },
+            ],
+          },
+          {
+            role: 'tool',
+            toolCallId: 'call_shot',
+            toolName: 'preview_screenshot',
+            content: [
+              ...mediaToolResult({ data: 'base64data', mediaType: 'image/png' }),
+              ...jsonToolResult({ ok: true }),
+            ],
+          },
+          assistantMessage('still thinking'),
+          {
+            role: 'tool',
+            toolCallId: 'call_read',
+            toolName: 'read_files',
+            content: jsonToolResult({ files: [] }),
+          },
+        ],
+        includeCacheControl: false,
+      })
+
+      expect(result.map((message) => message.role)).toEqual([
+        'user',
+        'assistant',
+        'tool',
+        'assistant',
+        'tool',
+        'user',
+      ])
+    })
+
+    it('flushes buffered media before the next assistant message', () => {
+      const result = convertCbToModelMessages({
+        messages: [
+          userMessage('go'),
+          {
+            ...assistantMessage('working'),
+            content: [
+              {
+                type: 'tool-call',
+                toolCallId: 'call_shot',
+                toolName: 'preview_screenshot',
+                input: {},
+              },
+            ],
+          },
+          {
+            role: 'tool',
+            toolCallId: 'call_shot',
+            toolName: 'preview_screenshot',
+            content: [
+              ...mediaToolResult({ data: 'base64data', mediaType: 'image/png' }),
+              ...jsonToolResult({ ok: true }),
+            ],
+          },
+          assistantMessage('here is what I saw'),
+        ],
+        includeCacheControl: false,
+      })
+
+      expect(result.map((message) => message.role)).toEqual([
+        'user',
+        'assistant',
+        'tool',
+        'user',
+        'assistant',
+      ])
+    })
+  })
+
   describe('basic message conversion', () => {
     it('should convert system messages', () => {
       const messages: Message[] = [systemMessage('You are a helpful assistant')]
@@ -302,7 +571,19 @@ describe('convertCbToModelMessages', () => {
         includeCacheControl: false,
       })
 
+      // The image rides a user message (providers reject images inside a tool
+      // message), but the call still has to be answered or it is an unpaired
+      // tool call — which providers reject and the server's repair then strips.
       expect(result).toEqual([
+        expect.objectContaining({
+          role: 'tool',
+          content: [
+            expect.objectContaining({
+              toolCallId: 'call_123',
+              type: 'tool-result',
+            }),
+          ],
+        }),
         expect.objectContaining({
           role: 'user',
           content: [
@@ -902,6 +1183,12 @@ describe('convertCbToModelMessages', () => {
           toolName: 'test_tool',
           input: { param: 'value' },
         }),
+        {
+          role: 'tool',
+          toolCallId: 'call_123',
+          toolName: 'test_tool',
+          content: jsonToolResult({ ok: true }),
+        },
       ]
 
       const result = convertCbToModelMessages({
@@ -909,20 +1196,19 @@ describe('convertCbToModelMessages', () => {
         includeCacheControl: false,
       })
 
-      expect(result).toEqual([
-        {
-          role: 'assistant',
-          sentAt: expect.any(Number),
-          content: [
-            {
-              type: 'tool-call',
-              toolCallId: 'call_123',
-              toolName: 'test_tool',
-              input: { param: 'value' },
-            },
-          ],
-        },
-      ])
+      expect(result[0]).toEqual({
+        role: 'assistant',
+        sentAt: expect.any(Number),
+        content: [
+          {
+            type: 'tool-call',
+            toolCallId: 'call_123',
+            toolName: 'test_tool',
+            input: { param: 'value' },
+          },
+        ],
+      })
+      expect(result[1].role).toBe('tool')
     })
 
     it('should preserve message metadata during conversion', () => {

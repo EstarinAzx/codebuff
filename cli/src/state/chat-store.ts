@@ -1,4 +1,4 @@
-import { castDraft } from 'immer'
+import { castDraft, enableMapSet } from 'immer'
 import { create } from 'zustand'
 import { immer } from 'zustand/middleware/immer'
 
@@ -49,6 +49,10 @@ export type {
   ClickedFollowupsMap,
 }
 
+// Drafts Sets (streamingAgents, activeSubagents) through immer; see
+// message-block-store for why the store enables the plugin itself.
+enableMapSet()
+
 export type ChatStoreState = {
   /** Unique ID for this chat session, regenerated on /new */
   chatSessionId: string
@@ -72,7 +76,16 @@ export type ChatStoreState = {
   /** The currently active top banner, or null if none */
   activeTopBanner: TopBannerType
   inputMode: InputMode
+  /** Skill awaiting user text while inputMode === 'skill'. Cleared by
+   *  setInputMode whenever the mode moves off 'skill', so Escape and every
+   *  other mode exit reset it without extra bookkeeping. */
+  pendingSkillName: string | null
   isRetrying: boolean
+  /** True while the current retry wait is a server capacity deferral (free
+   *  mode shed under high demand) rather than a stream recovery — the status
+   *  bar says "high demand" instead of a generic "retrying". Cleared with
+   *  isRetrying. */
+  isCapacityWait: boolean
   askUserState: AskUserState
   pendingAttachments: PendingAttachment[]
   pendingBashMessages: PendingBashMessage[]
@@ -140,7 +153,14 @@ type ChatStoreActions = {
   setActiveTopBanner: (banner: TopBannerType) => void
   closeTopBanner: () => void
   setInputMode: (mode: InputMode) => void
+  setPendingSkillName: (name: string | null) => void
+  /** Atomic skill-mode entry: mode and pending skill set together, so
+   *  'skill' mode with a null skill is never representable via this path. */
+  enterSkillMode: (skillName: string) => void
   setIsRetrying: (retrying: boolean) => void
+  /** Mark the current wait as a free-mode capacity deferral (implies
+   *  isRetrying). Cleared by setIsRetrying(false). */
+  noteCapacityDeferral: () => void
   setAskUserState: (state: AskUserState) => void
   updateAskUserAnswer: (questionIndex: number, optionIndex: number) => void
   updateAskUserOtherText: (questionIndex: number, text: string) => void
@@ -192,7 +212,9 @@ const initialState: ChatStoreState = {
   runState: null,
   activeTopBanner: null,
   inputMode: 'default' as InputMode,
+  pendingSkillName: null as string | null,
   isRetrying: false,
+  isCapacityWait: false,
   askUserState: null,
   pendingAttachments: [],
   pendingBashMessages: [],
@@ -319,11 +341,34 @@ export const useChatStore = create<ChatStore>()(
     setInputMode: (mode) =>
       set((state) => {
         state.inputMode = mode
+        if (mode !== 'skill') {
+          state.pendingSkillName = null
+        }
+      }),
+
+    setPendingSkillName: (name) =>
+      set((state) => {
+        state.pendingSkillName = name
+      }),
+
+    enterSkillMode: (skillName) =>
+      set((state) => {
+        state.inputMode = 'skill'
+        state.pendingSkillName = skillName
       }),
 
     setIsRetrying: (retrying) =>
       set((state) => {
         state.isRetrying = retrying
+        // Any transition (fresh generic retry, or the wait ending) supersedes
+        // a capacity flavor; only noteCapacityDeferral re-establishes it.
+        state.isCapacityWait = false
+      }),
+
+    noteCapacityDeferral: () =>
+      set((state) => {
+        state.isRetrying = true
+        state.isCapacityWait = true
       }),
 
     setAskUserState: (askUserState) =>
@@ -493,8 +538,10 @@ export const useChatStore = create<ChatStore>()(
         state.inputValue = initialState.inputValue
         state.cursorPosition = initialState.cursorPosition
         state.lastEditDueToNav = initialState.lastEditDueToNav
-        state.inputFocused = initialState.inputFocused
-        state.isFocusSupported = initialState.isFocusSupported
+        // Terminal capabilities and focus outlive a chat. Resetting these can
+        // re-enable animation while the app is still unfocused, and focus
+        // support would stay false because the mounted detector only reports
+        // support once per subscription.
         state.activeSubagents = new Set(initialState.activeSubagents)
         state.isChainInProgress = initialState.isChainInProgress
         state.slashSelectedIndex = initialState.slashSelectedIndex
@@ -508,7 +555,9 @@ export const useChatStore = create<ChatStore>()(
           : null
         state.activeTopBanner = initialState.activeTopBanner
         state.inputMode = initialState.inputMode
+        state.pendingSkillName = initialState.pendingSkillName
         state.isRetrying = initialState.isRetrying
+        state.isCapacityWait = initialState.isCapacityWait
         state.askUserState = initialState.askUserState
         state.pendingAttachments = []
         state.pendingBashMessages = []

@@ -1,3 +1,4 @@
+import { FREEBUFF_PROVIDER_USAGE_MESSAGE } from '@codebuff/common/constants/freebuff-errors'
 import { getErrorObject } from '@codebuff/common/util/error'
 
 import {
@@ -17,6 +18,7 @@ import {
   getFreebuffGateErrorKind,
   getFreebuffRateLimitErrorMessage,
   isOutOfCreditsError,
+  isFreebuffProviderUsageError,
   isFreeModeUnavailableError,
   OUT_OF_CREDITS_MESSAGE,
 } from '../../utils/error-handling'
@@ -122,6 +124,7 @@ export const prepareUserMessage = async (params: {
   agentMode: AgentMode
   postUserMessage?: (prev: ChatMessage[]) => ChatMessage[]
   attachments?: PendingAttachment[]
+  signal?: AbortSignal
   deps: PrepareUserMessageDeps
 }): Promise<{
   userMessageId: string
@@ -129,7 +132,8 @@ export const prepareUserMessage = async (params: {
   bashContextForPrompt: string
   finalContent: string
 }> => {
-  const { content, agentMode, postUserMessage, attachments, deps } = params
+  const { content, agentMode, postUserMessage, attachments, signal, deps } =
+    params
   const { setMessages, lastMessageMode, setLastMessageMode, scrollToLatest } =
     deps
 
@@ -196,6 +200,12 @@ export const prepareUserMessage = async (params: {
       projectRoot: getProjectRoot(),
     })
 
+  // A chat switch can happen while image processing is awaiting filesystem
+  // work. Do not append the old prompt after the destination chat has reset.
+  if (signal?.aborted) {
+    throw new Error('Message preparation aborted')
+  }
+
   const shouldInsertDivider =
     lastMessageMode === null || lastMessageMode !== agentMode
 
@@ -261,7 +271,7 @@ export const setupStreamingContext = (params: {
   timerController: SendMessageTimerController
   setMessages: (updater: (messages: ChatMessage[]) => ChatMessage[]) => void
   streamRefs: StreamController
-  abortControllerRef: MutableRefObject<AbortController | null>
+  abortController?: AbortController
   setStreamStatus: (status: StreamStatus) => void
   setCanProcessQueue: (can: boolean) => void
   isQueuePausedRef?: MutableRefObject<boolean>
@@ -274,7 +284,6 @@ export const setupStreamingContext = (params: {
     timerController,
     setMessages,
     streamRefs,
-    abortControllerRef,
     setStreamStatus,
     setCanProcessQueue,
     isQueuePausedRef,
@@ -291,17 +300,12 @@ export const setupStreamingContext = (params: {
   // Clear any previous UI-only error on this message when starting a new run
   updater.clearUserError()
   const hasReceivedContentRef = { current: false }
-  const abortController = new AbortController()
-  abortControllerRef.current = abortController
+  const abortController = params.abortController ?? new AbortController()
 
   abortController.signal.addEventListener('abort', () => {
     // Abort means the user stopped streaming; update UI with an interruption notice.
     // Release the chain lock immediately so new messages can be sent directly instead
-    // of being queued. The minor trade-off is that if the user sends a new message
-    // before client.run() resolves, it may use stale previousRunStateRef. This is
-    // acceptable because: (1) the user explicitly cancelled, and (2) client.run()
-    // will update previousRunStateRef when it eventually resolves, so subsequent
-    // runs will have the full state.
+    // of being queued.
     streamRefs.setters.setWasAbortedByUser(true)
     setIsRetrying(false)
     timerController.stop('aborted')
@@ -337,6 +341,10 @@ export const handleRunCompletion = (params: {
   updater: BatchedMessageUpdater
   aiMessageId: string
   wasAbortedByUser: boolean
+  /** Whether the run streamed any content before finishing. A freebuff gate
+   *  rejection with no content means the prompt was consumed unprocessed —
+   *  surfaced as an inline error instead of silently looking sent. */
+  hasReceivedContent?: boolean
   setStreamStatus: (status: StreamStatus) => void
   setCanProcessQueue: (can: boolean) => void
   updateChainInProgress: (value: boolean) => void
@@ -390,6 +398,12 @@ export const handleRunCompletion = (params: {
   }
 
   if (output.type === 'error') {
+    if (IS_FREEBUFF && isFreebuffProviderUsageError(output)) {
+      updater.setError(FREEBUFF_PROVIDER_USAGE_MESSAGE)
+      finalizeAfterError()
+      return
+    }
+
     if (isOutOfCreditsError(output)) {
       updater.setError(OUT_OF_CREDITS_MESSAGE)
       useChatStore.getState().setInputMode('outOfCredits')
@@ -413,7 +427,9 @@ export const handleRunCompletion = (params: {
 
     const gateKind = getFreebuffGateErrorKind(output)
     if (gateKind) {
-      handleFreebuffGateError(gateKind, updater)
+      handleFreebuffGateError(gateKind, updater, {
+        messageWasDropped: params.hasReceivedContent === false,
+      })
       finalizeAfterError()
       return
     }
@@ -476,6 +492,8 @@ export const handleRunError = (params: {
   updateChainInProgress: (value: boolean) => void
   isProcessingQueueRef?: MutableRefObject<boolean>
   isQueuePausedRef?: MutableRefObject<boolean>
+  /** See handleRunCompletion — flags an unprocessed prompt on gate errors. */
+  hasReceivedContent?: boolean
 }) => {
   const {
     error,
@@ -487,6 +505,7 @@ export const handleRunError = (params: {
     updateChainInProgress,
     isProcessingQueueRef,
     isQueuePausedRef,
+    hasReceivedContent,
   } = params
 
   const errorInfo = getErrorObject(error, { includeRawError: true })
@@ -501,6 +520,11 @@ export const handleRunError = (params: {
     isQueuePausedRef,
   })
   timerController.stop('error')
+
+  if (IS_FREEBUFF && isFreebuffProviderUsageError(error)) {
+    updater.setError(FREEBUFF_PROVIDER_USAGE_MESSAGE)
+    return
+  }
 
   if (isOutOfCreditsError(error)) {
     updater.setError(OUT_OF_CREDITS_MESSAGE)
@@ -523,7 +547,9 @@ export const handleRunError = (params: {
 
   const gateKind = getFreebuffGateErrorKind(error)
   if (gateKind) {
-    handleFreebuffGateError(gateKind, updater)
+    handleFreebuffGateError(gateKind, updater, {
+      messageWasDropped: hasReceivedContent === false,
+    })
     return
   }
 
@@ -541,13 +567,14 @@ export const handleRunError = (params: {
 }
 
 /**
- * Surface + recover from a waiting-room gate rejection. The server rejected
- * the request because our seat is no longer valid; update local state so the
- * UI reflects reality and we stop sending requests until we re-admit.
+ * Surface + recover from a session gate rejection. The server rejected
+ * the request because our session is no longer valid; update local state so
+ * the UI reflects reality and we stop sending requests until we re-admit.
  */
 function handleFreebuffGateError(
   kind: ReturnType<typeof getFreebuffGateErrorKind>,
   updater: BatchedMessageUpdater,
+  opts: { messageWasDropped?: boolean } = {},
 ) {
   switch (kind) {
     case 'session_expired':
@@ -559,6 +586,15 @@ function handleFreebuffGateError(
       // agent is still working even though the SessionEndedBanner is visible
       // and actionable. Also disposes the batched-updater flush interval.
       updater.markComplete()
+      // Rejected before producing anything (the run-start guard missed
+      // because only the server knew the slot was gone): the prompt won't be
+      // processed and isn't re-queued, so say so instead of leaving it
+      // looking sent. Runs that got partway keep the quieter banner-only UX.
+      if (opts.messageWasDropped) {
+        updater.setError(
+          'Your free session ended before this message was processed. Send it again after starting a new session.',
+        )
+      }
       // Flip to `ended` instead of auto re-queuing: the Chat surface stays
       // mounted so any in-flight agent work can finish under the server-side
       // grace period, and the session-ended banner prompts the user to press
@@ -566,8 +602,10 @@ function handleFreebuffGateError(
       markFreebuffSessionEnded()
       return
     case 'waiting_room_queued':
+      // Legacy error code: sessions are admitted immediately now, so this is
+      // only reachable in a transient race with a concurrent session request.
       updater.setError(
-        "You're still in the waiting room. Please wait for admission before sending messages.",
+        'Your free session is still being set up. Try again in a moment.',
       )
       // Re-sync without resetting chat — this is a "we'll wait", not a
       // "let's start fresh".

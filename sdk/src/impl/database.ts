@@ -1,3 +1,5 @@
+import { MAX_AGENT_STEP_ROWS } from '@codebuff/common/constants/agents'
+import { FREEBUFF_ACTING_USER_HEADER } from '@codebuff/common/constants/freebuff-models'
 import { validateSingleAgent } from '@codebuff/common/templates/agent-validation'
 import { DynamicAgentTemplateSchema } from '@codebuff/common/types/dynamic-agent-template'
 import { getErrorObject } from '@codebuff/common/util/error'
@@ -47,6 +49,10 @@ const agentsResponseSchema = z.object({
 /**
  * Fetch with retry logic for transient errors (502, 503, etc.)
  * Implements exponential backoff between retries.
+ *
+ * `options.signal`, when given, ends the in-flight request AND the retries and backoff sleeps
+ * behind it: a socket that never answers otherwise holds a run for the full retry budget with
+ * nothing the caller's abort can reach.
  */
 async function fetchWithRetry(
   url: URL | string,
@@ -55,8 +61,19 @@ async function fetchWithRetry(
 ): Promise<Response> {
   let lastError: Error | null = null
   let backoffDelay = RETRY_BACKOFF_BASE_DELAY_MS
+  const signal = options.signal ?? undefined
+  // the aborted check is load-bearing: `abort` never fires on a signal that already has
+  const sleep = (ms: number): Promise<void> =>
+    new Promise((resolve) => {
+      if (signal?.aborted) return resolve()
+      const timer = setTimeout(resolve, ms)
+      signal?.addEventListener('abort', () => (clearTimeout(timer), resolve()), { once: true })
+    })
 
   for (let attempt = 0; attempt <= MAX_RETRIES_PER_MESSAGE; attempt++) {
+    if (signal?.aborted) {
+      throw lastError ?? new DOMException('This operation was aborted', 'AbortError')
+    }
     try {
       const response = await fetch(url, options)
 
@@ -71,7 +88,7 @@ async function fetchWithRetry(
           { status: response.status, attempt: attempt + 1, url: String(url) },
           `Retryable HTTP error, retrying in ${backoffDelay}ms`,
         )
-        await new Promise((resolve) => setTimeout(resolve, backoffDelay))
+        await sleep(backoffDelay)
         backoffDelay = Math.min(backoffDelay * 2, RETRY_BACKOFF_MAX_DELAY_MS)
       } else {
         // Last attempt, return the response even if it's an error
@@ -80,13 +97,15 @@ async function fetchWithRetry(
     } catch (error) {
       // Network-level error (DNS, connection refused, etc.)
       lastError = error instanceof Error ? error : new Error(String(error))
+      // the caller's abort, not the network: nothing to retry
+      if (signal?.aborted) throw lastError
 
       if (attempt < MAX_RETRIES_PER_MESSAGE) {
         logger?.warn(
           { error: getErrorObject(lastError), attempt: attempt + 1, url: String(url) },
           `Network error, retrying in ${backoffDelay}ms`,
         )
-        await new Promise((resolve) => setTimeout(resolve, backoffDelay))
+        await sleep(backoffDelay)
         backoffDelay = Math.min(backoffDelay * 2, RETRY_BACKOFF_MAX_DELAY_MS)
       }
     }
@@ -99,7 +118,7 @@ async function fetchWithRetry(
 export async function getUserInfoFromApiKey<T extends UserColumn>(
   params: GetUserInfoFromApiKeyInput<T>,
 ): GetUserInfoFromApiKeyOutput<T> {
-  const { apiKey, fields, logger } = params
+  const { apiKey, fields, logger, signal } = params
 
   const cached = userInfoCache[apiKey]
   if (cached === null) {
@@ -136,12 +155,13 @@ export async function getUserInfoFromApiKey<T extends UserColumn>(
         headers: {
           Authorization: `Bearer ${apiKey}`,
         },
+        ...(signal ? { signal } : {}),
       },
       logger,
     )
   } catch (error) {
     logger.error(
-      { error: getErrorObject(error), apiKey, fields },
+      { error: getErrorObject(error), fields },
       'getUserInfoFromApiKey network error',
     )
     // Network-level failure: DNS, connection refused, timeout, etc.
@@ -150,7 +170,7 @@ export async function getUserInfoFromApiKey<T extends UserColumn>(
 
   if (response.status === 401 || response.status === 403 || response.status === 404) {
     logger.error(
-      { apiKey, fields, status: response.status },
+      { fields, status: response.status },
       'getUserInfoFromApiKey authentication failed',
     )
     // Don't cache auth failures - allow retry with potentially updated credentials
@@ -162,7 +182,7 @@ export async function getUserInfoFromApiKey<T extends UserColumn>(
 
   if (response.status >= 500 && response.status <= 599) {
     logger.error(
-      { apiKey, fields, status: response.status },
+      { fields, status: response.status },
       'getUserInfoFromApiKey server error',
     )
     throw createServerError('Server error', response.status)
@@ -170,7 +190,7 @@ export async function getUserInfoFromApiKey<T extends UserColumn>(
 
   if (!response.ok) {
     logger.error(
-      { apiKey, fields, status: response.status },
+      { fields, status: response.status },
       'getUserInfoFromApiKey request failed',
     )
     throw createHttpError('Request failed', response.status)
@@ -186,7 +206,7 @@ export async function getUserInfoFromApiKey<T extends UserColumn>(
     }
   } catch (error) {
     logger.error(
-      { error: getErrorObject(error), apiKey, fields },
+      { error: getErrorObject(error), fields },
       'getUserInfoFromApiKey JSON parse error',
     )
     throw createHttpError('Failed to parse response', response.status)
@@ -203,7 +223,7 @@ export async function getUserInfoFromApiKey<T extends UserColumn>(
     )
   ) {
     logger.error(
-      { apiKey, fields },
+      { fields },
       'getUserInfoFromApiKey: response missing required fields',
     )
     throw createHttpError('Request failed', response.status)
@@ -303,7 +323,7 @@ export async function fetchAgentFromDatabase(
 export async function startAgentRun(
   params: ParamsOf<StartAgentRunFn>,
 ): ReturnType<StartAgentRunFn> {
-  const { apiKey, agentId, ancestorRunIds, logger } = params
+  const { apiKey, userId, agentId, ancestorRunIds, logger, signal } = params
 
   const url = new URL(`/api/v1/agent-runs`, getWebsiteUrl())
 
@@ -314,18 +334,31 @@ export async function startAgentRun(
         method: 'POST',
         headers: {
           Authorization: `Bearer ${apiKey}`,
+          ...(userId ? { [FREEBUFF_ACTING_USER_HEADER]: userId } : {}),
         },
         body: JSON.stringify({
           action: 'START',
           agentId,
           ancestorRunIds,
         }),
+        ...(signal ? { signal } : {}),
       },
       logger,
     )
 
     if (!response.ok) {
+      const bodyText = await response.text().catch(() => '<unreadable body>')
       logger.error({ response }, 'startAgentRun request failed')
+      // The passed-in `logger` may silently drop unallowlisted error events
+      // (see freebuff/web/src/server/agent-runner/logger.ts), which turns a
+      // real failure here into an opaque "Failed to start agent run" with no
+      // way to diagnose it. Always surface the raw HTTP status/body too.
+      console.error('[startAgentRun] request failed', {
+        url: url.toString(),
+        status: response.status,
+        statusText: response.statusText,
+        body: bodyText.slice(0, 2000),
+      })
       return null
     }
 
@@ -335,6 +368,10 @@ export async function startAgentRun(
         { responseBody },
         'no runId found from startAgentRun request',
       )
+      console.error('[startAgentRun] no runId in response body', {
+        url: url.toString(),
+        responseBody,
+      })
     }
     return responseBody?.runId ?? null
   } catch (error) {
@@ -342,6 +379,10 @@ export async function startAgentRun(
       { error: getErrorObject(error), agentId },
       'startAgentRun error',
     )
+    console.error('[startAgentRun] threw', {
+      url: url.toString(),
+      error: getErrorObject(error),
+    })
     return null
   }
 }
@@ -351,6 +392,7 @@ export async function finishAgentRun(
 ): ReturnType<FinishAgentRunFn> {
   const {
     apiKey,
+    userId,
     runId,
     status,
     totalSteps,
@@ -359,6 +401,8 @@ export async function finishAgentRun(
     errorMessage,
     logger,
   } = params
+  const steps = pendingAgentSteps.get(runId) ?? []
+  pendingAgentSteps.delete(runId)
 
   const url = new URL(`/api/v1/agent-runs`, getWebsiteUrl())
 
@@ -369,6 +413,7 @@ export async function finishAgentRun(
         method: 'POST',
         headers: {
           Authorization: `Bearer ${apiKey}`,
+          ...(userId ? { [FREEBUFF_ACTING_USER_HEADER]: userId } : {}),
         },
         body: JSON.stringify({
           action: 'FINISH',
@@ -382,6 +427,7 @@ export async function finishAgentRun(
             errorMessage === undefined
               ? undefined
               : truncateString(errorMessage, 5000),
+          steps,
         }),
       },
       logger,
@@ -399,73 +445,79 @@ export async function finishAgentRun(
   }
 }
 
+const pendingAgentStepSchema = z.object({
+  id: z.string().uuid(),
+  stepNumber: z.number().int().nonnegative(),
+  credits: z.number().nonnegative().optional(),
+  childRunIds: z.array(z.string()).optional(),
+  messageId: z.string().nullable(),
+  status: z.enum(['running', 'completed', 'skipped']).optional(),
+  errorMessage: z.string().optional(),
+  startTime: z.string().datetime(),
+})
+type PendingAgentStep = z.infer<typeof pendingAgentStepSchema>
+
+const pendingAgentSteps = new Map<string, PendingAgentStep[]>()
+const MAX_PENDING_AGENT_RUNS = 1_000
+
 export async function addAgentStep(
   params: ParamsOf<AddAgentStepFn>,
 ): ReturnType<AddAgentStepFn> {
-  const {
-    apiKey,
-    agentRunId,
-    stepNumber,
-    credits,
-    childRunIds,
-    messageId,
-    status = 'completed',
-    errorMessage,
+  const id = crypto.randomUUID()
+  const startTime =
+    params.startTime instanceof Date ? params.startTime.toJSON() : null
+  const parsedStep = pendingAgentStepSchema.safeParse({
+    id,
+    stepNumber: params.stepNumber,
+    credits: params.credits,
+    childRunIds: params.childRunIds,
+    messageId: params.messageId,
+    status: params.status,
+    errorMessage: params.errorMessage,
     startTime,
-    logger,
-  } = params
-
-  const url = new URL(`/api/v1/agent-runs/${agentRunId}/steps`, getWebsiteUrl())
-
-  try {
-    const response = await fetchWithRetry(
-      url,
+  })
+  if (!parsedStep.success) {
+    params.logger.error(
       {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-        },
-        body: JSON.stringify({
-          stepNumber,
-          credits,
-          childRunIds,
-          messageId,
-          status,
-          errorMessage,
-          startTime,
-        }),
+        agentRunId: params.agentRunId,
+        stepNumber: params.stepNumber,
+        validationError: parsedStep.error,
       },
-      logger,
-    )
-
-    const responseBody = await response.json()
-    if (!response.ok) {
-      logger.error({ responseBody }, 'addAgentStep request failed')
-      return null
-    }
-
-    if (!responseBody?.stepId) {
-      logger.error(
-        { responseBody },
-        'no stepId found from addAgentStep request',
-      )
-    }
-    return responseBody.stepId ?? null
-  } catch (error) {
-    logger.error(
-      {
-        error: getErrorObject(error),
-        agentRunId,
-        stepNumber,
-        credits,
-        childRunIds,
-        messageId,
-        status,
-        errorMessage,
-        startTime,
-      },
-      'addAgentStep error',
+      'addAgentStep received invalid step data',
     )
     return null
   }
+  let entries = pendingAgentSteps.get(params.agentRunId)
+  if (!entries) {
+    if (pendingAgentSteps.size >= MAX_PENDING_AGENT_RUNS) {
+      const oldestRunId = pendingAgentSteps.keys().next().value
+      if (oldestRunId !== undefined) {
+        pendingAgentSteps.delete(oldestRunId)
+        params.logger.warn(
+          { evictedRunId: oldestRunId, maxPendingRuns: MAX_PENDING_AGENT_RUNS },
+          'Evicted abandoned agent-step buffer',
+        )
+      }
+    }
+    entries = []
+    pendingAgentSteps.set(params.agentRunId, entries)
+  } else {
+    // Refresh insertion order so the map cap evicts abandoned buffers before
+    // long-running agents that are still producing steps.
+    pendingAgentSteps.delete(params.agentRunId)
+    pendingAgentSteps.set(params.agentRunId, entries)
+  }
+  if (entries.length >= MAX_AGENT_STEP_ROWS) {
+    params.logger.warn(
+      {
+        agentRunId: params.agentRunId,
+        stepNumber: params.stepNumber,
+        maxSteps: MAX_AGENT_STEP_ROWS,
+      },
+      'Ignored agent step beyond the per-run buffer limit',
+    )
+    return null
+  }
+  entries.push(parsedStep.data)
+  return id
 }

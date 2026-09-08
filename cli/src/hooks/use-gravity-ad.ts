@@ -1,6 +1,15 @@
 import { WEBSITE_URL } from '@codebuff/sdk'
+import { AnalyticsEvent } from '@codebuff/common/constants/analytics-events'
+import { getAdUserAgent } from '@codebuff/common/util/ad-user-agent'
+import { FREEBUFF_EVENT_ID_HEADER } from '@codebuff/common/ads/ad-event-hygiene'
+import {
+  acknowledgeFirstPartyView,
+  type FirstPartyViewAckRequest,
+} from '@codebuff/common/ads/first-party-view-ack'
+import { createFirstPartyViewAckTelemetry } from '@codebuff/common/util/axiom-only-log'
 import { useEffect, useRef, useState } from 'react'
 
+import { getSessionDockArm } from './use-dock-panel'
 import { useTerminalLayout } from './use-terminal-layout'
 import { getAdsEnabled } from '../commands/ads'
 import { useChatStore } from '../state/chat-store'
@@ -9,8 +18,18 @@ import { getAuthToken } from '../utils/auth'
 import { IS_FREEBUFF } from '../utils/constants'
 import { getCliEnv } from '../utils/env'
 import { logger } from '../utils/logger'
+import { enqueueClientLog } from '../utils/log-shipper'
+import { AI_MESSAGE_ID_PREFIX } from '../utils/ai-message-id'
+import { trackEvent } from '../utils/analytics'
+import {
+  createLazyResponseAdQueue,
+  MAX_RESPONSE_AD_POOL_SIZE,
+  requestLazyResponseAds,
+} from '../utils/lazy-response-ads'
 
 import type { Message } from '@codebuff/sdk'
+import type { ChatMessage } from '../types/chat'
+import type { DockClickContext } from './use-dock-panel'
 
 const AD_ROTATION_INTERVAL_MS = 60 * 1000 // 60 seconds per ad
 const MAX_ADS_AFTER_ACTIVITY = 3 // Show up to 3 ads after last activity, then pause fetching new ads
@@ -27,22 +46,64 @@ export type AdResponse = {
   favicon: string
   clickUrl: string
   impUrl: string
+  placementId?: string
   provider?: AdProvider
   impressionIds?: string[]
   credits?: number // Set after impression is recorded (in cents)
+  /**
+   * `Date.now()` when the auction RESPONSE was received (COD-365). The origin
+   * of `renderDelayMs` on the impression ack: receipt to card mount, so our
+   * own server latency (already on `ads.fetch_completed.duration_ms`) stays
+   * out of a client metric. Absent on ads that predate the stamp; the ack
+   * then simply omits the delay and the server stores unknown.
+   */
+  receivedAtMs?: number
+  /**
+   * Optional expanded creative for the dock's detail panel (COD-457). Only
+   * first-party creatives carry these; a Gravity, Carbon or house ad arrives
+   * without them and the panel falls back to `adText`, no bullets, no diagram.
+   */
+  expandedBody?: string
+  bullets?: string[]
+  diagram?: string
+}
+
+/**
+ * Milliseconds from auction-response receipt to now, or undefined when the ad
+ * carries no receipt time. Never negative: a clock that moved backwards is a
+ * zero, not a rejection, mirroring the server's clamp.
+ */
+export function renderDelaySinceReceipt(
+  ad: Pick<AdResponse, 'receivedAtMs'>,
+  now: number = Date.now(),
+): number | undefined {
+  if (typeof ad.receivedAtMs !== 'number' || !Number.isFinite(ad.receivedAtMs))
+    return undefined
+  return Math.max(0, Math.round(now - ad.receivedAtMs))
 }
 
 /**
  * Which upstream ad network to query. The server maps each provider onto the
  * same normalized response shape, so the rest of the hook is provider-agnostic.
  */
-export type AdProvider = 'gravity' | 'carbon' | 'zeroclick'
-export type AdSurface = 'waiting_room'
+export type AdProvider = 'gravity' | 'carbon' | 'zeroclick' | 'first_party'
+// Product surfaces the ads API maps to Gravity placements. 'waiting_room' is the
+// legacy wire name for the freebuff landing screen; 'cli_chat' is the inline
+// transcript ad in the coding-agent chat. Values must match the server's
+// AD_SURFACES enum, so don't rename them.
+export type AdSurface = 'waiting_room' | 'cli_chat'
 
 export type GravityAdState = {
   ads: AdResponse[] | null
+  /**
+   * On-demand ad pools keyed by assistant message id. The renderer repeats a
+   * full pool when the response has more eligible slots than distinct ads.
+   */
+  responseAds: Record<string, AdResponse[]>
+  /** Lazily fill the response's bounded ad pool as slots become eligible. */
+  requestResponseAds: (messageId: string, count: number) => void
   isLoading: boolean
-  recordClick: (ad: AdResponse) => void
+  recordClick: (ad: AdResponse, dock?: DockClickContext) => void
   recordImpression: (ad: AdResponse) => void
 }
 
@@ -53,6 +114,8 @@ type GravityController = {
   impressionsFired: Set<string>
   adsShownSinceActivity: number
   tickInFlight: boolean
+  inlineQueue: ReturnType<typeof createLazyResponseAdQueue<AdResponse>>
+  eligibleSlotCounts: Map<string, number>
 }
 
 // Pure helper: add an ad set to the cache
@@ -77,31 +140,103 @@ function nextFromChoiceCache(ctrl: GravityController): AdResponse[] | null {
 }
 
 /**
- * Hook for fetching and rotating Gravity ads.
- *
- * Behavior:
- * - Ads only start after the user sends their first message
- * - Ads rotate every 60 seconds
- * - After 3 ads without user activity, stops fetching new ads but continues cycling cached ads
- * - Any user activity resets the counter and resumes fetching new ads
- *
- * Activity is tracked via the global activity-tracker module.
+ * A streamed LLM answer (possibly still in flight). Other top-level
+ * 'ai'-variant messages (bash echoes, system notices, mode dividers) are
+ * excluded via the `ai-` id prefix.
  */
-export const useGravityAd = (options?: {
+export function isAnswerMessage(m: ChatMessage): boolean {
+  return (
+    !m.parentId && m.variant === 'ai' && m.id.startsWith(AI_MESSAGE_ID_PREFIX)
+  )
+}
+
+export function isInlineAdEligibleAnswer(m: ChatMessage): boolean {
+  return isAnswerMessage(m) && m.metadata?.allowInlineAds === true
+}
+
+export function claimAdImpression(
+  impressionsFired: Set<string>,
+  impUrl: string,
+): boolean {
+  if (impressionsFired.has(impUrl)) return false
+  impressionsFired.add(impUrl)
+  return true
+}
+
+/**
+ * Narrow testable boundary: only our own inventory uses the resilient view
+ * acknowledgement transport. Third-party providers retain their legacy pixel
+ * acknowledgement path below.
+ */
+export function dispatchFirstPartyViewAcknowledgement(
+  provider: AdProvider | undefined,
+  request: Omit<FirstPartyViewAckRequest, 'onAttempt'>,
+  onAttempt: NonNullable<FirstPartyViewAckRequest['onAttempt']>,
+  acknowledge: typeof acknowledgeFirstPartyView = acknowledgeFirstPartyView,
+): boolean {
+  if (provider !== 'first_party') return false
+  void acknowledge({ ...request, onAttempt })
+  return true
+}
+
+function trackInlineAdEvent(
+  event: AnalyticsEvent,
+  properties: Record<string, unknown>,
+): void {
+  try {
+    trackEvent(event, properties)
+  } catch (error) {
+    // Telemetry must never interfere with fetching or rendering an ad.
+    logger.debug({ error, event }, '[ads] Failed to track inline ad event')
+  }
+}
+
+type GravityAdOptionsBase = {
   enabled?: boolean
   /** Skip the "wait for first user message" gate. Used by the freebuff
-   *  waiting room, which has no conversation but still needs ads. */
+   *  landing screen, which has no conversation but still needs ads. */
   forceStart?: boolean
   /** Ad network to request first. The server owns fallback ordering. */
   provider?: AdProvider
   /** Product surface requesting the ad. The server maps this to placements. */
   surface?: AdSurface
-}): GravityAdState => {
+  /** Explicit provider placement id for the rotating `ads[0]` slot. */
+  slotPlacementId?: string
+  placementIds?: string[]
+}
+
+type GravityAdOptions = GravityAdOptionsBase &
+  (
+    | {
+        /** Lazily fetch interspersed ads as the assistant response grows. */
+        inline: true
+        /** Reusable provider placement id for every lazy inline auction. */
+        inlinePlacementId: string
+      }
+    | {
+        inline?: false
+        inlinePlacementId?: never
+      }
+  )
+
+/**
+ * Fetches the rotating ad slot and, with `inline`, one reusable placement each
+ * time another interspersed response slot becomes eligible. Short answers make
+ * no unnecessary inline requests; long answers repeat a pool of four ads.
+ */
+export const useGravityAd = (options?: GravityAdOptions): GravityAdState => {
   const enabled = options?.enabled ?? true
   const forceStart = options?.forceStart ?? false
   const provider: AdProvider = options?.provider ?? 'gravity'
   const surface = options?.surface
+  const inline = options?.inline ?? false
+  const inlinePlacementId = options?.inlinePlacementId
+  const slotPlacementId = options?.slotPlacementId
+  const placementIds = options?.placementIds
   const [ads, setAds] = useState<AdResponse[] | null>(null)
+  const [responseAds, setResponseAds] = useState<Record<string, AdResponse[]>>(
+    {},
+  )
   const [isLoading, setIsLoading] = useState(false)
 
   // Check if terminal height is too small to show ads
@@ -119,7 +254,7 @@ export const useGravityAd = (options?: {
   const hasUserMessagedStore = useChatStore((s) =>
     s.messages.some((m) => m.variant === 'user'),
   )
-  // forceStart lets callers (e.g. the waiting room) opt out of the
+  // forceStart lets callers (e.g. the landing screen) opt out of the
   // "wait for the first user message" gate.
   const shouldStart = forceStart || hasUserMessagedStore
 
@@ -130,6 +265,8 @@ export const useGravityAd = (options?: {
     impressionsFired: new Set(),
     adsShownSinceActivity: 0,
     tickInFlight: false,
+    inlineQueue: createLazyResponseAdQueue<AdResponse>(),
+    eligibleSlotCounts: new Map(),
   })
 
   // Ref for the tick function (avoids useCallback dependency issues)
@@ -146,8 +283,7 @@ export const useGravityAd = (options?: {
 
     const ctrl = ctrlRef.current
     const { impUrl } = ad
-    if (ctrl.impressionsFired.has(impUrl)) return
-    ctrl.impressionsFired.add(impUrl)
+    if (!claimAdImpression(ctrl.impressionsFired, impUrl)) return
 
     const recordLocalImpression = async (): Promise<void> => {
       const authToken = getAuthToken()
@@ -158,17 +294,74 @@ export const useGravityAd = (options?: {
 
       // Include mode in request - Freebuff should not grant credits (no balance concept).
       const agentMode = useChatStore.getState().agentMode
+      // Measured HERE, at the moment the card is shown, against the receipt
+      // stamp `fetchAd` put on the ad (COD-365). The first-party transport
+      // sends it as a header; the third-party body carries it too.
+      const renderDelayMs = renderDelaySinceReceipt(ad)
 
+      const dispatchedFirstPartyAck = dispatchFirstPartyViewAcknowledgement(
+        ad.provider,
+        {
+          token: impUrl,
+          url: `${WEBSITE_URL}/api/v1/ads/impression`,
+          init: {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${authToken}`,
+              'User-Agent': getCliAdRequestUserAgent(),
+            },
+            body: JSON.stringify({
+              impUrl,
+              mode: agentMode,
+              userAgent: getAdUserAgent(),
+              os: getDeviceInfo().os,
+            }),
+          },
+          surface: surface ?? 'cli_chat',
+          placementId: ad.placementId ?? slotPlacementId ?? 'unknown',
+          clientFamily: 'cli',
+          ...(renderDelayMs !== undefined ? { renderDelayMs } : {}),
+        },
+        (observation) => {
+          const telemetry = createFirstPartyViewAckTelemetry(observation)
+          if (telemetry) {
+            enqueueClientLog({
+              level: 'info',
+              event: AnalyticsEvent.ADS_FIRST_PARTY_VIEW_ACK,
+              message: 'First-party view acknowledgement',
+              data: telemetry,
+            })
+          }
+        },
+      )
+      if (dispatchedFirstPartyAck) {
+        return
+      }
+
+      // One id per logical event (COD-365). This path has no retry, so one
+      // mint per call is one per event; the header is what the server reads.
+      const clientEventId = crypto.randomUUID()
       const res = await fetch(`${WEBSITE_URL}/api/v1/ads/impression`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${authToken}`,
           'User-Agent': getCliAdRequestUserAgent(),
+          [FREEBUFF_EVENT_ID_HEADER]: clientEventId,
         },
         body: JSON.stringify({
           impUrl,
           mode: agentMode,
+          // The same browser-like UA and OS this ad was auctioned with. The
+          // server fires Gravity's pixel for us, and without these it fired it
+          // as `Freebuff-CLI/<version>` while the auction had claimed a
+          // browser — one impression describing two different clients, on the
+          // field Gravity uses for bot filtering.
+          userAgent: getAdUserAgent(),
+          os: getDeviceInfo().os,
+          clientEventId,
+          ...(renderDelayMs !== undefined ? { renderDelayMs } : {}),
         }),
       })
 
@@ -229,21 +422,39 @@ export const useGravityAd = (options?: {
     })
   }
 
-  const recordClick = (ad: AdResponse): void => {
+  const recordClick = (ad: AdResponse, dock?: DockClickContext): void => {
     const authToken = getAuthToken()
     if (!authToken) {
       logger.warn('[ads] No auth token, skipping ad click recording')
       return
     }
 
+    // One id per logical click (COD-365); a repeat POST of the same ad is a
+    // new gesture and a new id, and the server answers `alreadyRecorded`.
+    const clientEventId = crypto.randomUUID()
     void fetch(`${WEBSITE_URL}/api/v1/ads/click`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${authToken}`,
         'User-Agent': getCliAdRequestUserAgent(),
+        [FREEBUFF_EVENT_ID_HEADER]: clientEventId,
       },
-      body: JSON.stringify({ impUrl: ad.impUrl, surface: surface ?? 'chat' }),
+      body: JSON.stringify({
+        impUrl: ad.impUrl,
+        clientEventId,
+        ...(surface ? { surface } : {}),
+        // The dock's own fields ride the ACK (COD-457), so the canonical
+        // server-side `ads.clicked` carries them and one click stays one
+        // event. Emitting a second client-side click here double-counted.
+        ...(dock
+          ? {
+              dockFrom: dock.from,
+              dockDwellMs: dock.dwellMs,
+              dockAccidentalClick: dock.accidental,
+            }
+          : {}),
+      }),
     })
       .then((res) => {
         if (!res.ok) {
@@ -261,7 +472,10 @@ export const useGravityAd = (options?: {
   type FetchAdResult = { ads: AdResponse[] } | null
 
   // Fetch an ad via web API
-  const fetchAd = async (): Promise<FetchAdResult> => {
+  const fetchAd = async (params?: {
+    placementId?: string
+    placementIds?: string[]
+  }): Promise<FetchAdResult> => {
     // Don't fetch ads when they should be hidden
     if (shouldHideAdsRef.current) return null
     if (!getAdsEnabled()) return null
@@ -316,10 +530,17 @@ export const useGravityAd = (options?: {
           sessionId: useChatStore.getState().chatSessionId,
           device: getDeviceInfo(),
           ...(surface ? { surface } : {}),
-          // Carbon requires a real browser-ish useragent for targeting/fraud
-          // detection. Gravity ignores it. We source one centrally so every
-          // provider that needs it sees the same value.
+          ...(params?.placementId ? { placementId: params.placementId } : {}),
+          ...(params?.placementIds?.length
+            ? { placementIds: params.placementIds }
+            : {}),
+          // Native runtime UAs look bot-like to ad networks. Send the shared
+          // browser-like UA so every provider sees a usable targeting signal.
           userAgent: getAdUserAgent(),
+          // The dock arm THIS session cached (COD-457). Omitted until the
+          // policy resolves, so the server falls back to its own assignment
+          // rather than being handed a guess.
+          ...(getSessionDockArm() ? { cliDockArm: getSessionDockArm() } : {}),
         }),
       })
 
@@ -343,10 +564,14 @@ export const useGravityAd = (options?: {
       const data = await response.json()
 
       if (Array.isArray(data.ads) && data.ads.length > 0) {
+        // Receipt stamp for `renderDelayMs` (COD-365): the response is in
+        // hand, the card is not yet on screen.
+        const receivedAtMs = Date.now()
         return {
           ads: (data.ads as AdResponse[]).map((ad) => ({
             ...ad,
             provider: data.provider ?? provider,
+            receivedAtMs,
           })),
         }
       }
@@ -372,7 +597,9 @@ export const useGravityAd = (options?: {
           ctrl.adsShownSinceActivity < MAX_ADS_AFTER_ACTIVITY &&
           isUserActive(ACTIVITY_THRESHOLD_MS)
 
-        const result = canFetchNew ? await fetchAd() : null
+        const result = canFetchNew
+          ? await fetchAd({ placementId: slotPlacementId, placementIds })
+          : null
 
         if (result) {
           addToChoiceCache(ctrl, result.ads)
@@ -410,7 +637,10 @@ export const useGravityAd = (options?: {
 
     // Fetch first ad immediately
     void (async () => {
-      const result = await fetchAd()
+      const result = await fetchAd({
+        placementId: slotPlacementId,
+        placementIds,
+      })
       if (result) {
         const ctrl = ctrlRef.current
         addToChoiceCache(ctrl, result.ads)
@@ -426,12 +656,86 @@ export const useGravityAd = (options?: {
     return () => {
       clearInterval(id)
     }
-  }, [shouldStart, shouldHideAds, provider, surface])
+  }, [shouldStart, shouldHideAds, provider, surface, placementIds?.join(',')])
+
+  // Called by BlocksRenderer only when its streamed node count makes another
+  // between-node slot eligible, until the four-ad pool is full. Requests use
+  // the same placement id and are serialized per answer so higher-value early
+  // results retain their order. The renderer cycles that exact pool for later
+  // slots without additional auctions or impression events.
+  const requestResponseAds = (messageId: string, count: number): void => {
+    if (
+      !inline ||
+      !inlinePlacementId ||
+      count <= 0 ||
+      shouldHideAdsRef.current ||
+      !getAdsEnabled()
+    ) {
+      return
+    }
+
+    const messages = useChatStore.getState().messages
+    const answer = messages.find((m) => m.id === messageId)
+    if (!answer || !isInlineAdEligibleAnswer(answer)) {
+      return
+    }
+
+    const ctrl = ctrlRef.current
+    const previousEligibleCount = ctrl.eligibleSlotCounts.get(messageId) ?? 0
+    if (count > previousEligibleCount) {
+      ctrl.eligibleSlotCounts.set(messageId, count)
+      const telemetryProperties = {
+        response_id: messageId,
+        chat_session_id: useChatStore.getState().chatSessionId,
+        eligible_slot_count: count,
+        pool_size: MAX_RESPONSE_AD_POOL_SIZE,
+        provider,
+        surface,
+        placement_id: inlinePlacementId,
+        is_freebuff: IS_FREEBUFF,
+      }
+      trackInlineAdEvent(
+        AnalyticsEvent.CLI_INLINE_AD_SLOT_ELIGIBLE,
+        telemetryProperties,
+      )
+
+      if (
+        count > MAX_RESPONSE_AD_POOL_SIZE &&
+        previousEligibleCount <= MAX_RESPONSE_AD_POOL_SIZE
+      ) {
+        enqueueClientLog({
+          level: 'info',
+          event: 'cli.inline_ad_pool_reused',
+          message: 'CLI inline-ad pool reused',
+          client_session_id: telemetryProperties.chat_session_id,
+          data: telemetryProperties,
+        })
+      }
+    }
+
+    void requestLazyResponseAds({
+      queue: ctrl.inlineQueue,
+      messageId,
+      count,
+      fetchOne: async () => {
+        const result = await fetchAd({ placementId: inlinePlacementId })
+        return result?.ads[0] ?? null
+      },
+      onAd: (ad) => {
+        setResponseAds((prev) => ({
+          ...prev,
+          [messageId]: [...(prev[messageId] ?? []), ad],
+        }))
+      },
+    })
+  }
 
   // Don't return ads when ads should be hidden
   const visible = shouldStart && !shouldHideAds
   return {
     ads: visible ? ads : null,
+    responseAds: visible ? responseAds : {},
+    requestResponseAds,
     isLoading,
     recordClick,
     recordImpression: recordImpressionOnce,
@@ -491,25 +795,6 @@ function getDeviceInfo(): DeviceInfo {
   const locale = Intl.DateTimeFormat().resolvedOptions().locale
 
   return { os, timezone, locale }
-}
-
-/**
- * Useragent string passed to ad providers. Carbon (BuySellAds) requires a
- * plausible browser useragent for targeting and fraud screening. We send a
- * stable desktop Chrome-on-{os} UA per platform so targeting is consistent
- * across users on the same platform without sharing anything identifying.
- *
- * Chrome version needs bumping periodically — stale UAs look bot-ish to ad
- * networks. Last bumped: 2026-04-21. Revisit roughly every 6 months.
- */
-const AD_CHROME_VERSION = '124.0.0.0'
-function getAdUserAgent(): string {
-  const osUA: Record<string, string> = {
-    darwin: `Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${AD_CHROME_VERSION} Safari/537.36`,
-    win32: `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${AD_CHROME_VERSION} Safari/537.36`,
-    linux: `Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${AD_CHROME_VERSION} Safari/537.36`,
-  }
-  return osUA[process.platform] ?? osUA.linux
 }
 
 function getCliAdRequestUserAgent(): string {
