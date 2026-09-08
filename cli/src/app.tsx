@@ -4,28 +4,22 @@ import { useShallow } from 'zustand/react/shallow'
 
 import { Chat } from './chat'
 import { ChatHistoryScreen } from './components/chat-history-screen'
+import { ChatRuntimeProvider } from './contexts/chat-runtime-context'
 import { FreebuffSupersededScreen } from './components/freebuff-superseded-screen'
 import { LoginModal } from './components/login-modal'
 import { ProjectPickerScreen } from './components/project-picker-screen'
-import { TerminalLink } from './components/terminal-link'
-import { WaitingRoomScreen } from './components/waiting-room-screen'
+import { FreebuffLandingScreen } from './components/freebuff-landing-screen'
 import { useAuthQuery } from './hooks/use-auth-query'
 import { useAuthState } from './hooks/use-auth-state'
 import { useFreebuffSession } from './hooks/use-freebuff-session'
-import { useLogo } from './hooks/use-logo'
-import { useSheenAnimation } from './hooks/use-sheen-animation'
-import { useTerminalDimensions } from './hooks/use-terminal-dimensions'
 import { useTerminalFocus } from './hooks/use-terminal-focus'
-import { useTheme } from './hooks/use-theme'
 import { getProjectRoot, startNewChat } from './project-files'
 import { useChatHistoryStore } from './state/chat-history-store'
+import { stopActiveRun } from './utils/active-run'
 import { useChatStore } from './state/chat-store'
 import type { TopBannerType } from './types/store'
 import { IS_FREEBUFF } from './utils/constants'
 import { findGitRoot } from './utils/git'
-import { openFileAtPath } from './utils/open-file'
-import { formatCwd } from './utils/path-helpers'
-import { getLogoBlockColor, getLogoAccentColor } from './utils/theme-system'
 
 import type { MultilineInputHandle } from './components/multiline-input'
 import type { AgentMode } from './utils/constants'
@@ -57,35 +51,15 @@ export const App = ({
   showProjectPicker,
   onProjectChange,
 }: AppProps) => {
-  const { terminalWidth } = useTerminalDimensions()
-  const theme = useTheme()
-
-  // Sheen animation state for the logo
-  const [sheenPosition, setSheenPosition] = useState(0)
-  const blockColor = getLogoBlockColor(theme.name)
-  const accentColor = getLogoAccentColor(theme.name)
-  const { applySheenToChar } = useSheenAnimation({
-    logoColor: theme.foreground,
-    accentColor,
-    blockColor,
-    terminalWidth,
-    sheenPosition,
-    setSheenPosition,
-  })
-
-  const { component: logoComponent } = useLogo({
-    // The header logo is a full-width banner — it is not confined to the
-    // 80-col content column (contentMaxWidth), so the wide "CODEBUFF - M"
-    // ASCII variant can never fit there. Budget it against the real
-    // terminal width minus the header box's paddingLeft/Right (1+1) plus
-    // a 2-col safety margin.
-    availableWidth: terminalWidth - 4,
-    accentColor,
-    blockColor,
-    applySheenToChar,
-  })
-
   const inputRef = useRef<MultilineInputHandle | null>(null)
+  const initialPromptConsumedRef = useRef(false)
+  const consumeInitialPrompt = useCallback(() => {
+    if (!initialPrompt || initialPromptConsumedRef.current) {
+      return null
+    }
+    initialPromptConsumedRef.current = true
+    return initialPrompt
+  }, [initialPrompt])
   const {
     setInputFocused,
     setIsFocusSupported,
@@ -93,6 +67,7 @@ export const App = ({
     activeTopBanner,
     setActiveTopBanner,
     closeTopBanner,
+    chatSessionId,
   } = useChatStore(
     useShallow((store) => ({
       setInputFocused: store.setInputFocused,
@@ -101,6 +76,7 @@ export const App = ({
       activeTopBanner: store.activeTopBanner,
       setActiveTopBanner: store.setActiveTopBanner,
       closeTopBanner: store.closeTopBanner,
+      chatSessionId: store.chatSessionId,
     })),
   )
 
@@ -189,15 +165,20 @@ export const App = ({
 
   const handleResumeChat = useCallback(
     (chatId: string) => {
+      // Abort any in-flight run BEFORE resetting the store and switching
+      // chats: an orphaned run would keep checkpointing, and its writes could
+      // land in the resumed chat's directory, overwriting that transcript.
+      stopActiveRun('history-resume')
       closeChatHistory()
       // Reset chat store to clear previous messages before loading the selected chat
       resetChatStore()
       setResumeChatId(chatId)
     },
-    [closeChatHistory, resetChatStore]
+    [closeChatHistory, resetChatStore],
   )
 
   const handleNewChat = useCallback(() => {
+    stopActiveRun('new-chat')
     closeChatHistory()
     resetChatStore()
     // Rotate the chat id so the new conversation saves to its own directory
@@ -210,51 +191,11 @@ export const App = ({
   const effectiveContinueChat = continueChat || resumeChatId !== null
   const effectiveContinueChatId = resumeChatId ?? continueChatId
 
-  const headerContent = useMemo(() => {
-    const displayPath = formatCwd(projectRoot)
-
-    return (
-      <box
-        style={{
-          flexDirection: 'column',
-          gap: 0,
-          paddingLeft: 1,
-          paddingRight: 1,
-        }}
-      >
-        <box
-          style={{
-            flexDirection: 'column',
-            marginBottom: 1,
-            marginTop: 2,
-          }}
-        >
-          {logoComponent}
-        </box>
-        <text
-          style={{ wrapMode: 'word', marginBottom: 1, fg: theme.foreground }}
-        >
-          {IS_FREEBUFF ? 'Freebuff' : 'Codebuff'} will run commands on your behalf to help you build.
-        </text>
-        <text
-          style={{ wrapMode: 'word', marginBottom: 1, fg: theme.foreground }}
-        >
-          Directory{' '}
-          <TerminalLink
-            text={displayPath}
-            color={theme.muted}
-            inline={true}
-            underlineOnHover={true}
-            onActivate={() => openFileAtPath(projectRoot)}
-          />
-        </text>
-      </box>
-    )
-  }, [logoComponent, projectRoot, theme])
-
   // Derive auth reachability + retrying state from authQuery error
   const authError = authQuery.error
-  const authErrorStatusCode = authError ? getErrorStatusCode(authError) : undefined
+  const authErrorStatusCode = authError
+    ? getErrorStatusCode(authError)
+    : undefined
 
   let authStatus: AuthStatus = 'ok'
   if (authQuery.isError && authErrorStatusCode !== undefined) {
@@ -269,7 +210,7 @@ export const App = ({
   }
 
   // Render project picker FIRST when at home directory or outside a project.
-  // This deliberately precedes the login/auth and waiting-room gates so the
+  // This deliberately precedes the login/auth and free-session gates so the
   // user always gets to pick a working directory before anything else — auth
   // failures or a banned freebuff session would otherwise replace the
   // picker mid-flash and look like being kicked out of the app.
@@ -308,14 +249,12 @@ export const App = ({
     )
   }
 
-  // Use key to force remount when resuming a different chat from history
-  const chatKey = resumeChatId ?? 'current'
-
+  // Reset the runtime only when the active chat identity changes. View-only
+  // routes such as history and session gates keep the same key.
   return (
     <AuthedSurface
-      chatKey={chatKey}
-      headerContent={headerContent}
-      initialPrompt={initialPrompt}
+      runtimeKey={chatSessionId}
+      consumeInitialPrompt={consumeInitialPrompt}
       agentId={agentId}
       fileTree={fileTree}
       inputRef={inputRef}
@@ -337,14 +276,15 @@ export const App = ({
 }
 
 interface AuthedSurfaceProps {
-  chatKey: string
-  headerContent: React.ReactNode
-  initialPrompt: string | null
+  runtimeKey: string
+  consumeInitialPrompt: () => string | null
   agentId?: string
   fileTree: FileTreeNode[]
   inputRef: React.MutableRefObject<MultilineInputHandle | null>
   setIsAuthenticated: React.Dispatch<React.SetStateAction<boolean | null>>
-  setUser: React.Dispatch<React.SetStateAction<import('./utils/auth').User | null>>
+  setUser: React.Dispatch<
+    React.SetStateAction<import('./utils/auth').User | null>
+  >
   logoutMutation: ReturnType<typeof useAuthState>['logoutMutation']
   continueChat: boolean
   continueChatId: string | undefined
@@ -359,22 +299,44 @@ interface AuthedSurfaceProps {
 }
 
 /**
- * Rendered only after auth is confirmed. Owns the freebuff waiting-room gate
+ * Rendered only after auth is confirmed. Owns the freebuff session gate
  * so `useFreebuffSession` runs exactly once per authed session (not before
  * we have a token).
  */
-const AuthedSurface = ({
-  chatKey,
-  headerContent,
-  initialPrompt,
-  agentId,
+const AuthedSurface = (props: AuthedSurfaceProps) => {
+  const {
+    session,
+    failure: sessionFailure,
+    lastRefund,
+    refundPending,
+  } = useFreebuffSession()
+
+  return (
+    <ChatRuntimeProvider
+      key={props.runtimeKey}
+      agentId={props.agentId}
+      inputRef={props.inputRef}
+      continueChat={props.continueChat}
+      continueChatId={props.continueChatId}
+    >
+      <AuthedSurfaceRoutes
+        {...props}
+        session={session}
+        sessionFailure={sessionFailure}
+        lastRefund={lastRefund}
+        refundPending={refundPending}
+      />
+    </ChatRuntimeProvider>
+  )
+}
+
+const AuthedSurfaceRoutes = ({
+  consumeInitialPrompt,
   fileTree,
   inputRef,
   setIsAuthenticated,
   setUser,
   logoutMutation,
-  continueChat,
-  continueChatId,
   authStatus,
   initialMode,
   gitRoot,
@@ -383,9 +345,16 @@ const AuthedSurface = ({
   onSelectChat,
   onCancelChatHistory,
   onNewChat,
-}: AuthedSurfaceProps) => {
-  const { session, error: sessionError } = useFreebuffSession()
-
+  session,
+  sessionFailure,
+  lastRefund,
+  refundPending,
+}: AuthedSurfaceProps & {
+  session: ReturnType<typeof useFreebuffSession>['session']
+  sessionFailure: ReturnType<typeof useFreebuffSession>['failure']
+  lastRefund: ReturnType<typeof useFreebuffSession>['lastRefund']
+  refundPending: boolean
+}) => {
   // Terminal state: a 409 from the gate means another CLI rotated our
   // instance id. Show a dedicated screen and stop polling — don't fall back
   // into the pre-chat screen, which would look like normal startup progress.
@@ -399,6 +368,8 @@ const AuthedSurface = ({
   //   'country_blocked' → terminal region-gate message
   //   'banned' → terminal account-banned message
   //   'rate_limited' → hit shared session quota; terminal for this run
+  //   'spend_limited' → daily provider-spend budget; return after reset
+  //   'ip_capped' → too many distinct users active on this egress IP
   //   'takeover_prompt' → another local CLI already holds this account
   //
   // 'ended' deliberately falls through to <Chat>: the agent may still be
@@ -411,14 +382,23 @@ const AuthedSurface = ({
       session.status === 'country_blocked' ||
       session.status === 'banned' ||
       session.status === 'rate_limited' ||
+      session.status === 'spend_limited' ||
+      session.status === 'ip_capped' ||
       session.status === 'takeover_prompt')
   ) {
-    return <WaitingRoomScreen session={session} error={sessionError} />
+    return (
+      <FreebuffLandingScreen
+        session={session}
+        failure={sessionFailure}
+        lastRefund={lastRefund}
+        refundPending={refundPending}
+      />
+    )
   }
 
   // Chat history renders inside AuthedSurface so the freebuff session stays
   // mounted while the user browses history. Unmounting this surface would
-  // DELETE the session row and drop the user back into the waiting room on
+  // DELETE the session row and drop the user back onto the landing screen on
   // return.
   if (showChatHistory) {
     return (
@@ -432,17 +412,12 @@ const AuthedSurface = ({
 
   return (
     <Chat
-      key={chatKey}
-      headerContent={headerContent}
-      initialPrompt={initialPrompt}
-      agentId={agentId}
+      consumeInitialPrompt={consumeInitialPrompt}
       fileTree={fileTree}
       inputRef={inputRef}
       setIsAuthenticated={setIsAuthenticated}
       setUser={setUser}
       logoutMutation={logoutMutation}
-      continueChat={continueChat}
-      continueChatId={continueChatId}
       authStatus={authStatus}
       initialMode={initialMode}
       gitRoot={gitRoot}

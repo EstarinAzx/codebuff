@@ -1,8 +1,18 @@
+import { countTokens } from '@codebuff/agent-runtime/util/token-counter'
 import { FILE_READ_STATUS } from '@codebuff/common/old-constants'
 import { isFileIgnored } from '@codebuff/common/project-file-tree'
+import {
+  isEnvTemplateFilePath,
+  isSensitiveEnvFilePath,
+} from '@codebuff/common/util/env-file-path'
+import {
+  createFileReadLimiter,
+  windowFileRead,
+} from '@codebuff/common/util/file-read-limits'
 
-import { resolveFilePathWithinProject } from './path-utils'
+import { resolveFilePath } from './path-utils'
 
+import type { FileReadWindow } from '@codebuff/common/types/contracts/client'
 import type { CodebuffFileSystem } from '@codebuff/common/types/filesystem'
 
 export type FileFilterResult = {
@@ -15,35 +25,58 @@ export async function getFiles(params: {
   filePaths: string[]
   cwd: string
   fs: CodebuffFileSystem
+  fileWindows?: Record<string, FileReadWindow[]>
+  /**
+   * Apply the user-facing read_files output budget. Internal edit tools need
+   * the complete file so replacements below the display limit can still match.
+   */
+  limitContent?: boolean
+  /** Apply the read_files-only .env restriction. */
+  enforceEnvPolicy?: boolean
   /**
    * Filter to classify files before reading.
-   * If provided, the caller takes full control of filtering (no gitignore check).
-   * If not provided, the SDK applies gitignore checking automatically.
+   * If provided, the caller takes control of additional filtering. The SDK's
+   * read_files .env policy applies by default, including ordinary gitignore
+   * checks for env templates.
    */
   fileFilter?: FileFilter
 }) {
-  const { filePaths, cwd, fs, fileFilter } = params
-  // If caller provides a filter, they own all filtering decisions
-  // If not, SDK applies default gitignore checking
+  const {
+    filePaths,
+    cwd,
+    fs,
+    fileWindows,
+    fileFilter,
+    limitContent = true,
+    enforceEnvPolicy = true,
+  } = params
+  // If the caller provides a filter, they own additional filtering decisions.
+  // Otherwise the SDK also applies default gitignore checking.
   const hasCustomFilter = fileFilter !== undefined
 
-  const result: Record<string, string | null> = {}
+  const result = Object.create(null) as Record<string, string | null>
+  const seenPaths = new Set<string>()
   const MAX_FILE_BYTES = 10 * 1024 * 1024 // 10MB - skip reading entirely
-  const MAX_CHARS = 100_000 // 100k characters threshold
-  const numFmt = new Intl.NumberFormat('en-US')
-  const fmtNum = (n: number) => numFmt.format(n)
+  const limiter = limitContent ? createFileReadLimiter({ countTokens }) : null
 
   for (const filePath of filePaths) {
     if (!filePath) {
       continue
     }
 
-    const resolvedPath = resolveFilePathWithinProject(cwd, filePath)
-    if (!resolvedPath) {
-      result[filePath] = FILE_READ_STATUS.OUTSIDE_PROJECT
+    const { relativePath, fullPath, isWithinProject } = resolveFilePath(
+      cwd,
+      filePath,
+    )
+    if (seenPaths.has(relativePath)) {
       continue
     }
-    const { relativePath, fullPath } = resolvedPath
+    seenPaths.add(relativePath)
+
+    if (enforceEnvPolicy && isSensitiveEnvFilePath(relativePath)) {
+      result[relativePath] = FILE_READ_STATUS.IGNORED
+      continue
+    }
 
     // Apply file filter if provided
     const filterResult = fileFilter?.(relativePath)
@@ -51,15 +84,19 @@ export async function getFiles(params: {
       result[relativePath] = FILE_READ_STATUS.IGNORED
       continue
     }
-    const isExampleFile = filterResult?.status === 'allow-example'
+    const isEnvTemplate =
+      enforceEnvPolicy && isEnvTemplateFilePath(relativePath)
+    const isExampleFile =
+      isEnvTemplate || filterResult?.status === 'allow-example'
 
-    // If no custom filter provided, apply default gitignore checking
-    // (allow-example files skip gitignore since they need to bypass .env.* patterns)
-    if (!hasCustomFilter && !isExampleFile) {
+    // Custom-filter callers own ordinary filtering decisions, except that env
+    // templates must still obey gitignore when the read_files policy is active.
+    if ((!hasCustomFilter || isEnvTemplate) && isWithinProject) {
       const ignored = await isFileIgnored({
         filePath: relativePath,
         projectRoot: cwd,
         fs,
+        ...(isEnvTemplate ? { allowEnvTemplate: true } : {}),
       })
       if (ignored) {
         result[relativePath] = FILE_READ_STATUS.IGNORED
@@ -79,21 +116,19 @@ export async function getFiles(params: {
 
       const content = await fs.readFile(fullPath, 'utf8')
 
-      if (content.length > MAX_CHARS) {
-        const truncated = content.slice(0, MAX_CHARS)
-        result[relativePath] =
-          truncated +
-          '\n\n[FILE_TOO_LARGE: This file is ' +
-          fmtNum(content.length) +
-          ' chars, exceeding the ' +
-          fmtNum(MAX_CHARS) +
-          ' char limit. The content above has been truncated. Use other tools to read other sections of the file.]'
-      } else {
-        // Prepend TEMPLATE marker for example files
-        result[relativePath] = isExampleFile
-          ? FILE_READ_STATUS.TEMPLATE + '\n' + content
+      const windows = fileWindows?.[filePath]
+      const windowedContent =
+        limitContent && fileWindows !== undefined
+          ? (windows?.length ? windows : [{}])
+              .map((window: FileReadWindow) =>
+                windowFileRead(content, window.offset, window.limit),
+              )
+              .join('\n\n')
           : content
-      }
+      const returnedContent = limiter?.limit(windowedContent) ?? windowedContent
+      result[relativePath] = isExampleFile
+        ? FILE_READ_STATUS.TEMPLATE + '\n' + returnedContent
+        : returnedContent
     } catch (error) {
       if (
         error &&
@@ -107,5 +142,5 @@ export async function getFiles(params: {
       }
     }
   }
-  return result
+  return { ...result }
 }

@@ -18,6 +18,7 @@
  */
 
 import { createAnthropic } from '@ai-sdk/anthropic'
+import { wrapLanguageModel } from 'ai'
 // PORT: @codebuff/internal was deleted upstream (snapshot-only pivot). The
 // openai-compatible factory moved to the new @codebuff/llm-providers package —
 // same exports (OpenAICompatibleChatLanguageModel, VERSION), drop-in re-point.
@@ -218,7 +219,41 @@ function createDirectProviderModel(params: {
       baseURL: baseUrl,
       apiKey: profile.apiKey,
     })
-    return anthropic(model)
+    return wrapLanguageModel({
+      model: anthropic(model),
+      middleware: {
+        specificationVersion: 'v4',
+        // AI SDK 7 adapts v2 responses, but forwards v4 tagged file inputs
+        // unchanged. The installed Anthropic provider requires raw file data.
+        transformParams: async ({ params }) => ({
+          ...params,
+          prompt: params.prompt.map((message) => {
+            if (message.role !== 'user') return message
+            return {
+              ...message,
+              content: message.content.map((part) => {
+                if (part.type !== 'file') return part
+                const data = part.data
+                if (data.type === 'reference') {
+                  throw new Error(
+                    'Anthropic BYOK does not support file references',
+                  )
+                }
+                return {
+                  ...part,
+                  data:
+                    data.type === 'url'
+                      ? data.url
+                      : data.type === 'text'
+                        ? new TextEncoder().encode(data.text)
+                        : data.data,
+                } as unknown as typeof part // v4-to-v2 provider boundary
+              }),
+            }
+          }),
+        }),
+      },
+    })
   }
 
   // openai-compat branch: openai, opencode, opencode-go, openrouter,

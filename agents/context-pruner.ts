@@ -34,6 +34,9 @@ const definition: AgentDefinition = {
         cacheExpiryMs: {
           type: 'number',
         },
+        cacheExpiryMinTokens: {
+          type: 'number',
+        },
       },
       required: [],
     },
@@ -42,7 +45,13 @@ const definition: AgentDefinition = {
   inheritParentSystemPrompt: true,
   includeMessageHistory: true,
 
-  handleSteps: function* ({ agentState, params }) {
+  // The summarization below is duplicated in
+  // packages/agent-runtime/src/compact-history.ts, which agents with
+  // `compactContext: true` run in-process instead of spawning this agent.
+  // handleSteps is serialized with toString() and this file is bundled into
+  // several artifacts, so the two cannot share an import — port changes across.
+  // packages/agent-runtime/src/__tests__/context-pruner-parity.test.ts guards it.
+  handleSteps: function* ({ agentState, params, logger }) {
     // =============================================================================
     // Constants (must be inside handleSteps since it's serialized to a string)
     // =============================================================================
@@ -78,8 +87,15 @@ const definition: AgentDefinition = {
     /** Fudge factor for token count threshold to trigger pruning earlier */
     const TOKEN_COUNT_FUDGE_FACTOR = 1_000
 
+    /** Axiom-only operational event understood by the logging adapters. */
+    const CONTEXT_PRUNING_COMPLETED_EVENT = 'context_pruning.completed'
+
     /** Prompt cache expiry time (Anthropic caches for 5 minutes by default) */
     const CACHE_EXPIRY_MS: number = params?.cacheExpiryMs ?? 5 * 60 * 1000
+
+    /** Smallest context the cache-expiry trigger will prune; unset means any
+     *  size. The context-limit trigger ignores it. */
+    const CACHE_EXPIRY_MIN_TOKENS: number = params?.cacheExpiryMinTokens ?? 0
 
     /** Header used in conversation summaries */
     const SUMMARY_HEADER =
@@ -136,7 +152,11 @@ const definition: AgentDefinition = {
     ): string {
       switch (toolName) {
         case 'read_files': {
-          const paths = input.paths as string[] | undefined
+          const paths = (input.paths as unknown[] | undefined)?.map((entry) =>
+            typeof entry === 'string'
+              ? entry
+              : ((entry as { path?: string })?.path ?? ''),
+          )
           if (paths && paths.length > 0) {
             return `inspected files: ${paths.join(', ')}`
           }
@@ -152,15 +172,11 @@ const definition: AgentDefinition = {
         }
         case 'propose_write_file': {
           const path = input.path as string | undefined
-          return path
-            ? `proposed writing: ${path}`
-            : 'proposed a file write'
+          return path ? `proposed writing: ${path}` : 'proposed a file write'
         }
         case 'propose_str_replace': {
           const path = input.path as string | undefined
-          return path
-            ? `proposed editing: ${path}`
-            : 'proposed a file edit'
+          return path ? `proposed editing: ${path}` : 'proposed a file edit'
         }
         case 'read_subtree': {
           const paths = input.paths as string[] | undefined
@@ -175,21 +191,15 @@ const definition: AgentDefinition = {
           if (pattern && flags) {
             return `code search for "${pattern}" (${flags})`
           }
-          return pattern
-            ? `code search for "${pattern}"`
-            : 'code search'
+          return pattern ? `code search for "${pattern}"` : 'code search'
         }
         case 'glob': {
           const pattern = input.pattern as string | undefined
-          return pattern
-            ? `glob search for ${pattern}`
-            : 'glob search'
+          return pattern ? `glob search for ${pattern}` : 'glob search'
         }
         case 'list_directory': {
           const path = input.path as string | undefined
-          return path
-            ? `listed directory: ${path}`
-            : 'listed a directory'
+          return path ? `listed directory: ${path}` : 'listed a directory'
         }
         case 'find_files': {
           const prompt = input.prompt as string | undefined
@@ -304,9 +314,7 @@ const definition: AgentDefinition = {
           return 'Suggested followups'
         case 'web_search': {
           const query = input.query as string | undefined
-          return query
-            ? `web search for "${query}"`
-            : 'web search'
+          return query ? `web search for "${query}"` : 'web search'
         }
         case 'read_url': {
           const url = input.url as string | undefined
@@ -318,9 +326,7 @@ const definition: AgentDefinition = {
           if (query) {
             return `Gravity Index ${action ?? 'search'} for "${query}"`
           }
-          return action
-            ? `Gravity Index ${action}`
-            : 'Gravity Index use'
+          return action ? `Gravity Index ${action}` : 'Gravity Index use'
         }
         case 'read_docs': {
           const libraryTitle = input.libraryTitle as string | undefined
@@ -346,10 +352,13 @@ const definition: AgentDefinition = {
     // =============================================================================
 
     const messages = agentState.messageHistory
-    const maxContextLength: number = params?.maxContextLength ?? 200_000
+    // 400k: every model we serve has a ~1M window. Callers that know their
+    // model pass an explicit budget (see contextPrunerBudgetForModel), which is
+    // how the 262,144-token models get a smaller one.
+    const maxContextLength: number = params?.maxContextLength ?? 400_000
 
-    // STEP 0: Always remove the last INSTRUCTIONS_PROMPT and SUBAGENT_SPAWN
-    // (these are inserted for the context-pruner subagent itself)
+    // STEP 0: Remove the last INSTRUCTIONS_PROMPT and any legacy
+    // SUBAGENT_SPAWN announcement.
     let currentMessages = [...messages]
     const lastInstructionsPromptIndex = currentMessages.findLastIndex(
       (message) => message.tags?.includes('INSTRUCTIONS_PROMPT'),
@@ -379,6 +388,7 @@ const definition: AgentDefinition = {
     // The USER_PROMPT is the actual user message; INSTRUCTIONS_PROMPT comes after it
     // We need to find the USER_PROMPT and check the gap between it and the last assistant message
     let cacheWillMiss = false
+    let cacheGapMs: number | null = null
     const userPromptIndex = currentMessages.findLastIndex((message) =>
       message.tags?.includes('USER_PROMPT'),
     )
@@ -394,19 +404,21 @@ const definition: AgentDefinition = {
       }
       if (userPromptMsg.sentAt && lastAssistantMsg?.sentAt) {
         const gap = userPromptMsg.sentAt - lastAssistantMsg.sentAt
-        cacheWillMiss = gap > CACHE_EXPIRY_MS
+        cacheGapMs = gap
+        cacheWillMiss =
+          gap > CACHE_EXPIRY_MS &&
+          agentState.contextTokenCount >= CACHE_EXPIRY_MIN_TOKENS
       }
     }
+
+    const contextLimitExceeded =
+      agentState.contextTokenCount + TOKEN_COUNT_FUDGE_FACTOR > maxContextLength
 
     // Check if we need to prune at all:
     // - Prune when context exceeds max, OR
     // - Prune when prompt cache will miss (>5 min gap) to take advantage of fresh context
     // If not, return messages with just the subagent-specific tags removed
-    if (
-      agentState.contextTokenCount + TOKEN_COUNT_FUDGE_FACTOR <=
-        maxContextLength &&
-      !cacheWillMiss
-    ) {
+    if (!contextLimitExceeded && !cacheWillMiss) {
       yield {
         toolName: 'set_messages',
         input: { messages: currentMessages },
@@ -552,10 +564,12 @@ const definition: AgentDefinition = {
     }
 
     // Phase 1: Summarize ALL messages into tagged entries
-    const summarizedEntries: Array<{
+    type SummaryEntry = {
       role: 'user' | 'assistant_tool'
       parts: string[]
-    }> = []
+    }
+    const summarizedEntries: SummaryEntry[] = []
+    let liveUserPromptEntry: SummaryEntry | undefined
 
     for (const message of messagesToSummarize) {
       if (message.role === 'user') {
@@ -570,10 +584,14 @@ const definition: AgentDefinition = {
             )
           }
           const imageNote = hasImages ? ' [image(s) were attached]' : ''
-          summarizedEntries.push({
+          const entry: SummaryEntry = {
             role: 'user',
             parts: [`[USER]${imageNote}\n${text}`],
-          })
+          }
+          if (message === latestLiveUserPromptMessage) {
+            liveUserPromptEntry = entry
+          }
+          summarizedEntries.push(entry)
         }
       } else if (message.role === 'assistant') {
         const textParts: string[] = []
@@ -757,15 +775,23 @@ const definition: AgentDefinition = {
     }
 
     // Parse previous summary into role-tagged entries and combine with new entries
-    const allEntries = [
-      ...parseSummaryIntoEntries(previousSummaryContent),
+    const previousSummaryEntries = parseSummaryIntoEntries(
+      previousSummaryContent,
+    )
+    const allEntries: SummaryEntry[] = [
+      ...previousSummaryEntries,
       ...summarizedEntries,
     ]
 
-    // Phase 2: Walk backwards through all entries to apply token budgets
+    // Phase 2: Walk backwards through all entries to apply token budgets.
+    // Exhausting one role's budget must not evict entries from the other role:
+    // user prompts are protected by the user budget independently of how much
+    // assistant/tool history the conversation accumulated, and vice versa.
     let assistantToolTokens = 0
     let userTokens = 0
-    let cutoffIndex = 0
+    let assistantToolBudgetExhausted = false
+    let userBudgetExhausted = false
+    const includedEntries: typeof allEntries = []
 
     for (let i = allEntries.length - 1; i >= 0; i--) {
       const entry = allEntries[i]
@@ -773,30 +799,41 @@ const definition: AgentDefinition = {
       const entryTokens = Math.ceil(entryText.length / CHARS_PER_TOKEN)
 
       if (entry.role === 'user') {
+        if (userBudgetExhausted) continue
         if (userTokens + entryTokens > userBudget) {
-          cutoffIndex = i + 1
-          break
+          userBudgetExhausted = true
+          continue
         }
         userTokens += entryTokens
       } else {
+        if (assistantToolBudgetExhausted) continue
         if (assistantToolTokens + entryTokens > assistantToolBudget) {
-          cutoffIndex = i + 1
-          break
+          assistantToolBudgetExhausted = true
+          continue
         }
         assistantToolTokens += entryTokens
       }
+
+      includedEntries.push(entry)
+    }
+
+    // Preserve the pre-existing guarantee that the newest entry always
+    // survives, even when it alone exceeds its role's budget. With independent
+    // role selection, entries from the other role may still fit, so the old
+    // "summary is empty" fallback is no longer sufficient.
+    const newestEntry = allEntries[allEntries.length - 1]
+    let newestEntryForced = false
+    if (newestEntry && !includedEntries.includes(newestEntry)) {
+      // includedEntries is reverse-chronological until Phase 3.
+      includedEntries.unshift(newestEntry)
+      newestEntryForced = true
     }
 
     // Phase 3: Build final summary from included entries
     const summaryParts: string[] = []
 
-    for (let i = cutoffIndex; i < allEntries.length; i++) {
-      summaryParts.push(...allEntries[i].parts)
-    }
-
-    // Fallback: if nothing fit within budgets, always include at least the newest entry
-    if (summaryParts.length === 0 && allEntries.length > 0) {
-      summaryParts.push(...allEntries[allEntries.length - 1].parts)
+    for (let i = includedEntries.length - 1; i >= 0; i--) {
+      summaryParts.push(...includedEntries[i].parts)
     }
 
     const summaryText = summaryParts.join('\n\n---\n\n')
@@ -852,6 +889,65 @@ ${SUMMARY_DISCLAIMER}`,
       finalMessages.push(continuationMessage)
     } else if (latestLiveUserPromptMessage) {
       finalMessages.push({ ...latestLiveUserPromptMessage, sentAt: now })
+    }
+
+    const userEntryCount = allEntries.filter(
+      (entry) => entry.role === 'user',
+    ).length
+    const assistantToolEntryCount = allEntries.length - userEntryCount
+    const liveUserPromptHasText = latestLiveUserPromptMessage
+      ? getTextContent(latestLiveUserPromptMessage).trim().length > 0
+      : false
+    const liveUserPromptTextPreserved = latestLiveUserPromptMessage
+      ? !isMidTurnPrune ||
+        !liveUserPromptHasText ||
+        (liveUserPromptEntry !== undefined &&
+          includedEntries.includes(liveUserPromptEntry))
+      : false
+    const includedUserEntryCount = includedEntries.filter(
+      (entry) => entry.role === 'user',
+    ).length
+    const includedAssistantToolEntryCount =
+      includedEntries.length - includedUserEntryCount
+    const triggerReason = contextLimitExceeded
+      ? cacheWillMiss
+        ? 'context_limit_and_cache_expiry'
+        : 'context_limit'
+      : 'cache_expiry'
+
+    // Telemetry is best-effort and must never block the actual pruning update.
+    try {
+      logger.info(
+        {
+          axiomEvent: CONTEXT_PRUNING_COMPLETED_EVENT,
+          agent_run_id: agentState.runId,
+          parent_agent_run_id: agentState.parentId,
+          trigger_reason: triggerReason,
+          context_token_count: agentState.contextTokenCount,
+          max_context_length: maxContextLength,
+          ...(cacheGapMs === null ? {} : { cache_gap_ms: cacheGapMs }),
+          cache_expiry_ms: CACHE_EXPIRY_MS,
+          cache_expiry_min_tokens: CACHE_EXPIRY_MIN_TOKENS,
+          previous_summary_entry_count: previousSummaryEntries.length,
+          user_budget: userBudget,
+          user_entry_count: userEntryCount,
+          dropped_user_entry_count: userEntryCount - includedUserEntryCount,
+          assistant_tool_budget: assistantToolBudget,
+          assistant_tool_entry_count: assistantToolEntryCount,
+          dropped_assistant_tool_entry_count:
+            assistantToolEntryCount - includedAssistantToolEntryCount,
+          mid_turn: isMidTurnPrune,
+          live_user_prompt_found: latestLiveUserPromptMessage !== null,
+          live_user_prompt_text_preserved: liveUserPromptTextPreserved,
+          newest_entry_forced: newestEntryForced,
+          summary_estimated_tokens: Math.ceil(
+            summaryText.length / CHARS_PER_TOKEN,
+          ),
+        },
+        'Context pruning completed',
+      )
+    } catch {
+      // Ignore logging failures; set_messages below is the critical operation.
     }
 
     yield {

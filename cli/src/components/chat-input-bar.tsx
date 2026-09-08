@@ -5,6 +5,8 @@ import {
 import React from 'react'
 
 import { AgentModeToggle } from './agent-mode-toggle'
+import { Button } from './button'
+import { ClickableTitleBox } from './clickable-title-box'
 import { MultipleChoiceForm } from './ask-user'
 import { FeedbackContainer } from './feedback-container'
 import { InputModeBanner } from './input-mode-banner'
@@ -24,6 +26,7 @@ import { BORDER_CHARS } from '../utils/ui-constants'
 import type { useTheme } from '../hooks/use-theme'
 import type { InputValue } from '../types/store'
 import type { AgentMode } from '../utils/constants'
+import type { MouseEvent } from '@opentui/core'
 
 type Theme = ReturnType<typeof useTheme>
 
@@ -62,6 +65,7 @@ interface ChatInputBarProps {
   separatorWidth: number
   shouldCenterInputVertically: boolean
   inputBoxTitle: string | undefined
+  onQueuePreviewClick?: () => void
   isCompactHeight: boolean
   isNarrowWidth: boolean
 
@@ -106,6 +110,7 @@ export const ChatInputBar = ({
   separatorWidth,
   shouldCenterInputVertically,
   inputBoxTitle,
+  onQueuePreviewClick,
   isCompactHeight,
   isNarrowWidth,
   feedbackMode,
@@ -119,8 +124,25 @@ export const ChatInputBar = ({
 }: ChatInputBarProps) => {
   const inputMode = useChatStore((state) => state.inputMode)
   const setInputMode = useChatStore((state) => state.setInputMode)
+  const pendingSkillName = useChatStore((state) => state.pendingSkillName)
 
-  const modeConfig = getInputModeConfig(inputMode)
+  const baseModeConfig = getInputModeConfig(inputMode)
+  // Skill mode names the pending skill in the banner so the user can see
+  // what their text will be attached to. Skill names run up to 64 chars;
+  // keep the banner narrow enough to leave room for typing.
+  const skillLabel =
+    inputMode === 'skill' && pendingSkillName
+      ? pendingSkillName.length > 24
+        ? `${pendingSkillName.slice(0, 23)}…`
+        : pendingSkillName
+      : null
+  const modeConfig = skillLabel
+    ? {
+        ...baseModeConfig,
+        label: skillLabel,
+        widthAdjustment: skillLabel.length + 3,
+      }
+    : baseModeConfig
   const askUserState = useChatStore((state) => state.askUserState)
   const hasAnyPreview = hasSuggestionMenu
 
@@ -191,11 +213,6 @@ export const ChatInputBar = ({
 
   // Subscription limit mode: show only the limit banner (no input box)
   if (inputMode === 'subscriptionLimit') {
-    return <InputModeBanner />
-  }
-
-  // ChatGPT connect mode: show only the connect panel (no input box)
-  if (inputMode === 'connect:chatgpt') {
     return <InputModeBanner />
   }
 
@@ -335,6 +352,27 @@ export const ChatInputBar = ({
             footer={mentionMenuFooter}
           />
         ) : null}
+        {inputBoxTitle && onQueuePreviewClick && (
+          <Button
+            onClick={(event) => {
+              if ((event as MouseEvent | undefined)?.button === 0) {
+                onQueuePreviewClick()
+              }
+            }}
+            style={{
+              width: '100%',
+              height: 1,
+              paddingLeft: 1,
+              paddingRight: 1,
+              backgroundColor: theme.surface,
+              overflow: 'hidden',
+            }}
+          >
+            <text style={{ fg: theme.muted, wrapMode: 'none' }}>
+              {inputBoxTitle.trim()}
+            </text>
+          </Button>
+        )}
         <box
           style={{
             flexDirection: 'row',
@@ -395,9 +433,10 @@ export const ChatInputBar = ({
 
   return (
     <>
-      <box
+      <ClickableTitleBox
         title={inputBoxTitle}
         titleAlignment="center"
+        onTitleClick={onQueuePreviewClick}
         style={{
           width: '100%',
           borderStyle: 'single',
@@ -500,7 +539,7 @@ export const ChatInputBar = ({
             )}
           </box>
         </box>
-      </box>
+      </ClickableTitleBox>
       <InputModeBanner />
     </>
   )

@@ -82,9 +82,9 @@ Freebuff only supports **FREE mode**. All mode-related features are stripped.
 | `/refer-friends` (+ `/referral`, `/redeem`)        | Referrals earn credits, not applicable                                                         |
 | `/mode:*` (all mode commands)                      | Only FREE mode                                                                                 |
 | `/agent:gpt-5`                                     | Premium agent, not available in free tier                                                      |
-| `/review`                                          | Uses thinker-gpt under the hood                                                                |
+| `/review`                                          | Reviews on the selected model                                                                  |
 | `/publish`                                         | Agent publishing not available in free tier                                                    |
-| `/image` (+ `/img`, `/attach`)                     | Image attachments unavailable with free models (Kimi K2.6, DeepSeek V4 Pro, DeepSeek V4 Flash) |
+| `/image` (+ `/img`, `/attach`)                     | Image attachments unavailable with non-multimodal free models (DeepSeek V4 Pro, DeepSeek V4 Flash) |
 
 ### Commands to KEEP
 
@@ -205,8 +205,7 @@ freebuff/
 │   ├── build.ts      # Build script that sets FREEBUFF_MODE=true
 │   └── release/
 │       ├── package.json  # npm package metadata (name: "freebuff")
-│       ├── index.js      # Entry point (finds/runs binary)
-│       ├── postinstall.js# Downloads platform binary on install
+│       ├── index.js      # Thin product configuration entry point
 │       └── README.md     # npm package README
 └── web/              # (Future) Freebuff website code
 ```
@@ -230,7 +229,8 @@ Mirrors `cli/release/package.json` but with:
 - `"name": "freebuff"`
 - `"description": "Free AI coding assistant"`
 - `"bin": { "freebuff": "index.js" }`
-- Same `postinstall.js` pattern (downloads platform-specific binary from GitHub releases)
+- Shared launcher implementation from `cli/release-core/`, materialized during `npm pack`
+- Downloads the platform-specific binary on first launch
 - Binary stored at `~/.config/manicode/freebuff` (or `freebuff.exe` on Windows)
 
 ### GitHub Workflow

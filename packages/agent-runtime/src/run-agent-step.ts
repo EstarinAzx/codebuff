@@ -1,5 +1,4 @@
-import { AnalyticsEvent } from '@codebuff/common/constants/analytics-events'
-import { shouldUseLocalTokenCountForFreebuffDeepseekFlash } from '@codebuff/common/constants/free-agents'
+import { contextPrunerBudgetForModel } from '@codebuff/common/constants/model-config'
 import {
   supportsAssistantPrefill,
   supportsCacheControl,
@@ -9,25 +8,36 @@ import { buildArray } from '@codebuff/common/util/array'
 import {
   AbortError,
   FETCH_IDLE_TIMEOUT_USER_MESSAGE,
+  TRANSIENT_NETWORK_ERROR_USER_MESSAGE,
   extractApiErrorDetails,
   getErrorObject,
   isAbortError,
   isFetchIdleTimeoutError,
+  isTransientNetworkError,
 } from '@codebuff/common/util/error'
 import { serializeCacheDebugCorrelation } from '@codebuff/common/util/cache-debug'
-import { systemMessage, userMessage } from '@codebuff/common/util/messages'
+import {
+  dropUnansweredToolCalls,
+  systemMessage,
+  userMessage,
+} from '@codebuff/common/util/messages'
 import { type ToolSet } from 'ai'
 import { cloneDeep, mapValues } from 'lodash'
+import z from 'zod/v4'
 
+import { maybeCompactHistory } from './compact-history'
 import { CACHE_DEBUG_FULL_LOGGING } from './constants'
-import { callTokenCountAPI } from './llm-api/codebuff-web-api'
 import { getMCPToolData } from './mcp'
 import { getAgentStreamFromTemplate } from './prompt-agent-stream'
+import { isThinkOnlyResponse } from './util/think-tags'
 import {
   clearProgrammaticRunState,
   runProgrammaticStep,
 } from './run-programmatic-step'
-import { additionalSystemPrompts } from './system-prompt/prompts'
+import {
+  additionalSystemPrompts,
+  isCompactCommandPrompt,
+} from './system-prompt/prompts'
 import { getAgentTemplate } from './templates/agent-registry'
 import { buildAgentToolSet } from './templates/prompts'
 import { getAgentPrompt } from './templates/strings'
@@ -45,7 +55,12 @@ import {
   buildUserMessageContent,
   expireMessages,
 } from './util/messages'
-import { countTokensJson } from './util/token-counter'
+import { recountContextTokens } from './util/context-token-count'
+import {
+  countTokens,
+  countTokensJson,
+  countTokensMessages,
+} from './util/token-counter'
 
 import type { AgentTemplate } from '@codebuff/common/types/agent-template'
 import type { TrackEventFn } from '@codebuff/common/types/contracts/analytics'
@@ -55,7 +70,10 @@ import type {
   StartAgentRunFn,
 } from '@codebuff/common/types/contracts/database'
 import type {
+  AgentUsageData,
   CacheDebugUsageData,
+  ContextCompactionData,
+  ModelUsageData,
   PromptAiSdkFn,
 } from '@codebuff/common/types/contracts/llm'
 import type { Logger } from '@codebuff/common/types/contracts/logger'
@@ -79,6 +97,48 @@ import type {
   CustomToolDefinitions,
   ProjectFileContext,
 } from '@codebuff/common/util/file'
+
+// Convert a tool's stored inputSchema into JSON Schema suitable for Anthropic's
+// count_tokens API. Built-in and MCP tools store a Zod schema here; serializing
+// it raw ships Zod internals (`def`/`shape`) instead of JSON Schema, so token
+// counts are computed against garbage and any schema whose top-level isn't an
+// object (e.g. a union → `anyOf`) arrives without `type`, which the API rejects
+// with `tools.N.custom.input_schema.type: Field required`. We convert to JSON
+// Schema and guarantee a top-level `type: 'object'`.
+export function toTokenCountInputSchema(
+  inputSchema: unknown,
+): Record<string, unknown> | undefined {
+  if (inputSchema == null) return undefined
+
+  let jsonSchema: Record<string, unknown>
+  if (
+    typeof (inputSchema as { safeParse?: unknown }).safeParse === 'function'
+  ) {
+    try {
+      jsonSchema = z.toJSONSchema(inputSchema as z.ZodType, {
+        io: 'input',
+      }) as Record<string, unknown>
+    } catch {
+      jsonSchema = { type: 'object', properties: {} }
+    }
+  } else if (typeof inputSchema === 'object' && !Array.isArray(inputSchema)) {
+    // Already a plain object (e.g. a pre-serialized JSON Schema) — copy it.
+    jsonSchema = { ...(inputSchema as Record<string, unknown>) }
+  } else {
+    return undefined
+  }
+
+  // `$schema` is meaningless to count_tokens; drop it to keep the payload lean.
+  delete jsonSchema['$schema']
+  // Anthropic requires a top-level `type: 'object'`. Object schemas already
+  // carry it; union/intersection schemas (anyOf/allOf) don't — backfill it.
+  // Treat missing / null / empty-string as absent (valid JSON Schema `type` is
+  // always a non-empty string or array).
+  if (jsonSchema.type == null || jsonSchema.type === '') {
+    jsonSchema.type = 'object'
+  }
+  return jsonSchema
+}
 
 async function additionalToolDefinitions(
   params: {
@@ -106,6 +166,10 @@ async function additionalToolDefinitions(
   })
 }
 
+/** Run-id prefix for runs that skip the run-tracking ledger (context-pruner).
+ *  These ids exist only in-process and must never be sent to the web API. */
+export const UNTRACKED_RUN_ID_PREFIX = 'untracked-'
+
 export const runAgentStep = async (
   params: {
     userId: string | undefined
@@ -130,6 +194,9 @@ export const runAgentStep = async (
     trackEvent: TrackEventFn
     promptAiSdk: PromptAiSdkFn
     traceWriter?: TraceWriter
+    onAgentUsageReceived?: (usage: AgentUsageData) => void
+    onAgentUsageIncomplete?: () => void
+    onCompaction?: (data: ContextCompactionData) => void
   } & ParamsExcluding<
     typeof processStream,
     | 'agentContext'
@@ -172,10 +239,8 @@ export const runAgentStep = async (
 }> => {
   const {
     agentType,
-    clientSessionId,
     fileContext,
     agentTemplate,
-    fingerprintId,
     localAgentTemplates,
     logger,
     prompt,
@@ -186,7 +251,6 @@ export const runAgentStep = async (
     userInputId,
     onResponseChunk,
     promptAiSdk,
-    trackEvent,
     additionalToolDefinitions,
   } = params
   let agentState = params.agentState
@@ -195,22 +259,8 @@ export const runAgentStep = async (
 
   const startTime = Date.now()
 
-  // Generates a unique ID for each main prompt run (ie: a step of the agent loop)
-  // This is used to link logs within a single agent loop
+  // Links logs within a single step of the agent loop.
   const agentStepId = crypto.randomUUID()
-  trackEvent({
-    event: AnalyticsEvent.AGENT_STEP,
-    userId: userId ?? '',
-    properties: {
-      agentStepId,
-      clientSessionId,
-      fingerprintId,
-      userInputId,
-      userId,
-      repoName: repoId,
-    },
-    logger,
-  })
 
   if (agentState.stepsRemaining <= 0) {
     logger.warn(
@@ -250,8 +300,17 @@ export const runAgentStep = async (
     additionalToolDefinitions,
   })
 
+  // An interrupted turn can leave a tool call with no result behind, which
+  // strict providers (DeepSeek) reject with a 400. Since history is persisted
+  // and replayed, that one orphan would fail every later turn, so drop it here
+  // — the single point every step's request is built — and assign the cleaned
+  // history back so the checkpointed state is valid too.
+  const history = dropUnansweredToolCalls(
+    expireMessages(agentState.messageHistory, 'agentStep'),
+  )
+
   const agentMessagesUntruncated = buildArray<Message>(
-    ...expireMessages(agentState.messageHistory, 'agentStep'),
+    ...history,
 
     stepPrompt &&
       userMessage({
@@ -294,7 +353,9 @@ export const runAgentStep = async (
   }
 
   const iterationNum = agentState.messageHistory.length
-  const systemTokens = countTokensJson(system)
+  // system is a plain string; count it directly rather than JSON-stringifying
+  // it (which would add quotes and escape every newline).
+  const systemTokens = countTokens(system)
 
   let cacheDebugCorrelation:
     | ReturnType<typeof createCacheDebugSnapshot>
@@ -460,6 +521,15 @@ export const runAgentStep = async (
     messages: [systemMessage(system), ...agentState.messageHistory],
     onCacheDebugProviderRequestBuilt,
     onCacheDebugUsageReceived,
+    onUsageReceived: params.onAgentUsageReceived
+      ? (usage: ModelUsageData) =>
+          params.onAgentUsageReceived?.({
+            ...usage,
+            isRoot: !agentState.parentId,
+            agentId: agentState.agentId,
+          })
+      : undefined,
+    onUsageIncomplete: params.onAgentUsageIncomplete,
     template: agentTemplate,
     onCostCalculated,
   })
@@ -492,19 +562,35 @@ export const runAgentStep = async (
     'agentStep',
   )
 
-  // Handle /compact command: replace message history with the summary
-  const wasCompacted =
-    prompt &&
-    (prompt.toLowerCase() === '/compact' || prompt.toLowerCase() === 'compact')
+  // Handle the compact command: replace message history with the summary. The
+  // trigger is COUPLED to the instruction injection (isCompactCommandPrompt
+  // reads the same map that injected compactPrompt above), so it cannot match
+  // a prompt that never received the summarize instruction — a divergence
+  // (the old lowercased comparison matched `/Compact`, which the exact-key
+  // injection did not) replaced the whole history with an ordinary answer.
+  const wasCompacted = isCompactCommandPrompt(prompt)
   if (wasCompacted) {
-    agentState.messageHistory = [
-      userMessage(
-        withSystemTags(
-          `The following is a summary of the conversation between you and the user. The conversation continues after this summary:\n\n${fullResponse}`,
+    if (
+      fullResponse.trim().length > 0 &&
+      !isThinkOnlyResponse(fullResponse)
+    ) {
+      agentState.messageHistory = [
+        userMessage(
+          withSystemTags(
+            `The following is a summary of the conversation between you and the user. The conversation continues after this summary:\n\n${fullResponse}`,
+          ),
         ),
-      ),
-    ]
-    logger.debug({ summary: fullResponse }, 'Compacted messages')
+      ]
+      logger.debug({ summary: fullResponse }, 'Compacted messages')
+    } else {
+      // An interrupted, tool-only, or think-only response would replace the
+      // history with a non-summary — total, unrecoverable amnesia. Keep the
+      // history instead.
+      logger.warn(
+        { messageCount: agentState.messageHistory.length },
+        'Skipped compact: model returned no summary text',
+      )
+    }
   }
 
   const hasNoToolResults =
@@ -521,16 +607,10 @@ export const runAgentStep = async (
       call.toolName === 'task_completed' || call.toolName === 'end_turn',
   )
 
-  // If the response is only <think>...</think> tags with no other non-whitespace content,
-  // the model was just thinking and should continue rather than end its turn.
-  const responseWithoutThinkTags = fullResponse
-    .replace(/<think>[\s\S]*?<\/think>/g, '')
-    .replace(/<think>[\s\S]*$/, '')
-    .trim()
-  const isThinkOnly =
-    hasNoToolResults &&
-    responseWithoutThinkTags.length === 0 &&
-    fullResponse.trim().length > 0
+  // If the response is only <think>...</think> scaffolding (including orphan
+  // </think> closes that native-reasoning providers sometimes leak into
+  // content), the model was just thinking and should continue rather than end.
+  const isThinkOnly = hasNoToolResults && isThinkOnlyResponse(fullResponse)
 
   // If the agent has the task_completed tool, it must be called to end its turn.
   const requiresExplicitCompletion =
@@ -541,11 +621,13 @@ export const runAgentStep = async (
     // For models requiring explicit completion, only end turn when:
     // - task_completed is called, OR
     // - end_turn is called (backward compatibility)
-    shouldEndTurn = hasTaskCompleted
+    shouldEndTurn = !hadToolCallError && hasTaskCompleted
   } else {
     // For other models, also end turn when there are no tool calls
     // Exception: if the response is only <think> tags, continue the turn
-    shouldEndTurn = hasTaskCompleted || (hasNoToolResults && !isThinkOnly)
+    shouldEndTurn =
+      !hadToolCallError &&
+      (hasTaskCompleted || (hasNoToolResults && !isThinkOnly))
   }
 
   agentState = {
@@ -687,6 +769,33 @@ export async function loopAgentSteps(
   agentState: AgentState
   output: AgentOutput
 }> {
+  let agentTemplate = params.agentTemplate
+  if (!agentTemplate) {
+    agentTemplate =
+      (await getAgentTemplate({
+        ...params,
+        agentId: params.agentType,
+      })) ?? undefined
+  }
+  if (!agentTemplate) {
+    throw new Error(`Agent template not found for type: ${params.agentType}`)
+  }
+
+  // The context pruner is a programmatic no-model-call agent spawned before
+  // every main-agent step. Recording its runs in the ledger cost three awaited
+  // web-API round trips (start/step/finish) per main-agent step, so it mints a
+  // local run id and skips run tracking entirely. Matches bundled and
+  // publisher-qualified ids ('context-pruner', 'codebuff/context-pruner@1.0.0').
+  if (agentTemplate.id.includes('context-pruner')) {
+    params = {
+      ...params,
+      startAgentRun: async () =>
+        `${UNTRACKED_RUN_ID_PREFIX}${crypto.randomUUID()}`,
+      addAgentStep: async () => null,
+      finishAgentRun: async () => {},
+    }
+  }
+
   const {
     addAgentStep,
     agentState: initialAgentState,
@@ -710,18 +819,6 @@ export async function loopAgentSteps(
     ciEnv,
   } = params
 
-  let agentTemplate = params.agentTemplate
-  if (!agentTemplate) {
-    agentTemplate =
-      (await getAgentTemplate({
-        ...params,
-        agentId: agentType,
-      })) ?? undefined
-  }
-  if (!agentTemplate) {
-    throw new Error(`Agent template not found for type: ${agentType}`)
-  }
-
   if (signal.aborted) {
     return {
       agentState: initialAgentState,
@@ -738,6 +835,16 @@ export async function loopAgentSteps(
     ancestorRunIds: initialAgentState.ancestorRunIds,
   })
   if (!runId) {
+    // registration ends on the run's signal; an abort landing there is a cancel, not a failure
+    if (signal.aborted) {
+      return {
+        agentState: initialAgentState,
+        output: {
+          type: 'error',
+          message: 'Run cancelled by user',
+        },
+      }
+    }
     throw new Error('Failed to start agent run')
   }
   initialAgentState.runId = runId
@@ -802,6 +909,9 @@ export async function loopAgentSteps(
     ? parentTools
     : await getToolSet({
         toolNames: agentTemplate.toolNames,
+        windowedFileReads: agentTemplate.windowedFileReads === true,
+        suppressCommitAttribution:
+          agentTemplate.suppressCommitAttribution === true,
         additionalToolDefinitions: async () => {
           if (!cachedAdditionalToolDefinitions) {
             cachedAdditionalToolDefinitions = await additionalToolDefinitions({
@@ -859,7 +969,8 @@ export async function loopAgentSteps(
 
   // Convert tools to a serializable format for context-pruner token counting
   const toolDefinitions = mapValues(tools, (tool) => ({
-    description: tool.description,
+    description:
+      typeof tool.description === 'string' ? tool.description : undefined,
     inputSchema: tool.inputSchema as {},
   }))
 
@@ -881,22 +992,63 @@ export async function loopAgentSteps(
   initialAgentState.toolDefinitions = toolDefinitions
   let currentAgentState: AgentState = initialAgentState
 
-  // Convert tool definitions to Anthropic format for accurate token counting
-  // Tool definitions are stored as { [name]: { description, inputSchema } }
-  // Anthropic count_tokens API expects [{ name, description, input_schema }]
+  // Convert tool definitions to Anthropic format for accurate token counting.
+  // Tool definitions are stored as { [name]: { description, inputSchema } },
+  // where inputSchema is a Zod schema. Anthropic's count_tokens API expects
+  // [{ name, description, input_schema }] with input_schema being real JSON
+  // Schema (with a top-level `type: 'object'`) — see toTokenCountInputSchema.
   const toolsForTokenCount = Object.entries(toolDefinitions).map(
-    ([name, def]) => ({
-      name,
-      ...(def.description && { description: def.description }),
-      ...(def.inputSchema && { input_schema: def.inputSchema }),
-    }),
+    ([name, def]) => {
+      const input_schema = toTokenCountInputSchema(def.inputSchema)
+      return {
+        name,
+        ...(def.description && { description: def.description }),
+        ...(input_schema && { input_schema }),
+      }
+    },
   )
+
+  // Recount against the history the turn actually ends with.
+  //
+  // Inside the loop the count is taken BEFORE the model call, so the last
+  // step's assistant response and every tool result it produced are missing
+  // from it — systematically the most recently added content, and on a step
+  // that read several files easily tens of thousands of tokens. That was
+  // harmless while the number only fed the compaction check, which runs again
+  // at the top of the next step anyway. It stops being harmless now that hosts
+  // persist it and show it to the user between turns.
+  //
+  // Same formula as estimateContextTokensLocally below, minus the step prompt:
+  // `system` and `toolsForTokenCount` are loop-invariant, and the step prompt
+  // is per-step scaffolding rather than part of the history the next turn is
+  // sent on top of. Once per turn against once per step is not a hot-path cost.
+  //
+  // Root agents only, which is the whole reason the count lives in its own
+  // module with a test: a subagent's final count is discarded with the
+  // subagent, and recounting it tokenizes that agent's entire history for
+  // nobody.
+  const recountContextTokensForTurnEnd = () => {
+    currentAgentState.contextTokenCount = recountContextTokens({
+      agentState: {
+        // `initialAgentState` is the same object `currentAgentState` points at
+        // (every reassignment below assigns it), so this is exactly the
+        // predicate the compaction callback already uses two hundred lines
+        // down: nothing a subagent computes here leaves the subagent.
+        parentId: initialAgentState.parentId,
+        messageHistory: currentAgentState.messageHistory,
+        contextTokenCount: currentAgentState.contextTokenCount,
+      },
+      systemPrompt: system,
+      toolsForTokenCount,
+    })
+  }
 
   let shouldEndTurn = false
   let hasRetriedOutputSchema = false
   let currentPrompt = prompt
   let currentParams = spawnParams
   let totalSteps = 0
+  let llmStepNumber = 0
   let nResponses: string[] | undefined = undefined
 
   try {
@@ -926,41 +1078,55 @@ export async function loopAgentSteps(
           }),
       )
 
+      // Count structured message content (not JSON.stringify, which inflates the
+      // count and counts image base64 as text); system is a plain string; tool
+      // schemas stay JSON since that's roughly how the model sees them.
       const estimateContextTokensLocally = () =>
-        countTokensJson(messagesWithStepPrompt) +
-        countTokensJson(system) +
+        countTokensMessages(messagesWithStepPrompt) +
+        countTokens(system) +
         countTokensJson(toolsForTokenCount)
 
-      if (
-        shouldUseLocalTokenCountForFreebuffDeepseekFlash({
-          agentId: agentTemplate.id,
-          model: agentTemplate.model,
-        })
-      ) {
-        currentAgentState.contextTokenCount = estimateContextTokensLocally()
-      } else {
-        // Check context token count via the web API.
-        const tokenCountResult = await callTokenCountAPI({
-          messages: messagesWithStepPrompt,
-          system,
-          model: agentTemplate.model,
-          tools: toolsForTokenCount,
-          fetch,
+      // Always count locally. The token-count web API round-trip (full
+      // history + tools shipped to the server, which relays to Anthropic)
+      // added seconds of serial overhead to every step; there is no paid mode
+      // anymore that needs Anthropic-exact counts, and context-limit checks
+      // only need an estimate.
+      currentAgentState.contextTokenCount = estimateContextTokensLocally()
+
+      // Mechanical compaction: no model call, so it costs nothing but the
+      // prompt-cache break that rewriting the history forces anyway. The
+      // budget is sized to the model in use (see contextPrunerBudgetForModel),
+      // which is the same budget base2 hands the context-pruner agent.
+      //
+      // Fires once per turn at most: compaction stamps every surviving message
+      // with a fresh sentAt and drops the assistant messages that preceded the
+      // live prompt, so the cache gap it measured is gone on the next step.
+      if (agentTemplate.compactContext) {
+        const compacted = maybeCompactHistory({
+          // The option object is exactly the tunable subset, so it forwards
+          // whole. Spread first: the fields below are not the agent's to set.
+          ...(typeof agentTemplate.compactContext === 'object'
+            ? agentTemplate.compactContext
+            : {}),
+          messages: currentAgentState.messageHistory,
+          contextTokenCount: currentAgentState.contextTokenCount,
+          maxContextLength: contextPrunerBudgetForModel(agentTemplate.model),
           logger,
-          env: { clientEnv, ciEnv },
+          runId,
+          onCompaction: (trigger) => {
+            if (initialAgentState.parentId) return
+            params.onCompaction?.({
+              trigger,
+              thresholdTokens: contextPrunerBudgetForModel(agentTemplate.model),
+            })
+          },
         })
-        if (tokenCountResult.inputTokens !== undefined) {
-          currentAgentState.contextTokenCount = tokenCountResult.inputTokens
-        } else if (tokenCountResult.error) {
-          logger.warn(
-            { error: tokenCountResult.error },
-            'Failed to get token count from web API',
-          )
-          const estimatedTokens =
-            countTokensJson(currentAgentState.messageHistory) +
-            countTokensJson(system) +
-            countTokensJson(toolDefinitions)
-          currentAgentState.contextTokenCount = estimatedTokens
+        if (compacted) {
+          currentAgentState.messageHistory = compacted
+          currentAgentState.contextTokenCount =
+            countTokensMessages(compacted) +
+            countTokens(system) +
+            countTokensJson(toolsForTokenCount)
         }
       }
 
@@ -1043,6 +1209,7 @@ export async function loopAgentSteps(
 
       const creditsBefore = currentAgentState.directCreditsUsed
       const childrenBefore = currentAgentState.childRunIds.length
+      llmStepNumber++
       const {
         agentState: newAgentState,
         shouldEndTurn: llmShouldEndTurn,
@@ -1053,6 +1220,10 @@ export async function loopAgentSteps(
 
         agentState: currentAgentState,
         agentTemplate,
+        extraCodebuffMetadata: {
+          ...(params.extraCodebuffMetadata ?? {}),
+          llm_step_number: String(llmStepNumber),
+        },
         n,
         prompt: currentPrompt,
         runId,
@@ -1112,6 +1283,8 @@ export async function loopAgentSteps(
       )
     }
 
+    recountContextTokensForTurnEnd()
+
     await finishAgentRun({
       ...params,
       runId,
@@ -1155,6 +1328,13 @@ export async function loopAgentSteps(
         'Agent run cancelled by user (abort error)',
       )
 
+      // Same reason as the success path, and it matters more here: the branch
+      // above just appended another message to the history the caller keeps.
+      // Not the last edit, though — the SDK's buildCancelledSessionState drops
+      // unanswered tool calls and appends again at the persistence boundary,
+      // and carries this count across those edits itself.
+      recountContextTokensForTurnEnd()
+
       await finishAgentRun({
         ...params,
         runId,
@@ -1190,10 +1370,13 @@ export async function loopAgentSteps(
 
     const apiErrorDetails = extractApiErrorDetails(error)
     const isIdleTimeout = isFetchIdleTimeoutError(error)
+    const isNetworkError = !isIdleTimeout && isTransientNetworkError(error)
     const hasServerMessage = apiErrorDetails.message !== undefined
     let fallbackMessage: string
     if (isIdleTimeout) {
       fallbackMessage = FETCH_IDLE_TIMEOUT_USER_MESSAGE
+    } else if (isNetworkError) {
+      fallbackMessage = TRANSIENT_NETWORK_ERROR_USER_MESSAGE
     } else if (error instanceof Error) {
       const includeStack =
         apiErrorDetails.statusCode === undefined && error.stack
@@ -1206,6 +1389,9 @@ export async function loopAgentSteps(
     const statusCode = apiErrorDetails.statusCode
 
     const status = signal.aborted ? 'cancelled' : 'failed'
+    // A failed turn still leaves history behind, and the host still shows the
+    // user a context reading before their next message.
+    recountContextTokensForTurnEnd()
     await finishAgentRun({
       ...params,
       runId,
@@ -1226,7 +1412,7 @@ export async function loopAgentSteps(
       output: {
         type: 'error',
         message:
-          hasServerMessage || isIdleTimeout
+          hasServerMessage || isIdleTimeout || isNetworkError
             ? errorMessage
             : 'Agent run error: ' + errorMessage,
         ...(statusCode !== undefined && { statusCode }),

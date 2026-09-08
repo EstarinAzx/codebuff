@@ -1,6 +1,12 @@
 import { AnalyticsEvent } from '@codebuff/common/constants/analytics-events'
 import type { FeedbackCategory } from '@codebuff/common/constants/feedback'
+import { setFreeModeCapacityDeferralListener } from '@codebuff/sdk'
 import { safeOpen } from './utils/open-url'
+import { getAuthToken } from './utils/auth'
+import { isSponsoredProposalBlock } from './types/chat'
+import { runSponsoredProposalControl } from './utils/sponsored-proposal-control'
+import { sponsoredRunFor } from './utils/sponsored-run'
+import { useSponsoredProposal } from './hooks/use-sponsored-proposal'
 import {
   useCallback,
   useEffect,
@@ -13,10 +19,19 @@ import { useShallow } from 'zustand/react/shallow'
 
 import { getAdsEnabled } from './commands/ads'
 import { routeUserPrompt, addBashMessageToHistory } from './commands/router'
-import { SingleAdBanner } from './components/ad-banner'
+import {
+  SingleAdBanner,
+  dockPanelRowBudget,
+} from './components/ad-banner'
+import {
+  DOCK_PANEL_MAX_WIDTH,
+  getDockPanelLayout,
+} from '@codebuff/common/ads/inline-ad-layout'
 import { ChatInputBar } from './components/chat-input-bar'
+import { ChatHeader } from './components/chat-header'
 import { FreebuffActiveSessionSummary } from './components/freebuff-active-session-summary'
 import { LoadPreviousButton } from './components/load-previous-button'
+import { QueuePanel } from './components/queue-panel'
 import { ReviewScreen } from './components/review-screen'
 import { MessageWithAgents } from './components/message-with-agents'
 import { areCreditsRestored } from './components/out-of-credits-banner'
@@ -29,8 +44,8 @@ import {
   type SuggestedPromptSelection,
 } from './components/suggested-prompts'
 import { TopBanner } from './components/top-banner'
+import { useChatRuntime } from './contexts/chat-runtime-context'
 import { getSlashCommandsWithSkills } from './data/slash-commands'
-import { useAgentValidation } from './hooks/use-agent-validation'
 import { useAskUserBridge } from './hooks/use-ask-user-bridge'
 import { useChatInput } from './hooks/use-chat-input'
 import {
@@ -41,24 +56,25 @@ import { useChatMessages } from './hooks/use-chat-messages'
 import { useChatState } from './hooks/use-chat-state'
 import { useChatStreaming } from './hooks/use-chat-streaming'
 import { useChatUI } from './hooks/use-chat-ui'
-import { useSubscriptionQuery } from './hooks/use-subscription-query'
 import { useClipboard } from './hooks/use-clipboard'
 import { useEvent } from './hooks/use-event'
 import { useGravityAd } from './hooks/use-gravity-ad'
+import { DOCK_CHORD_HINT, useDockPanel } from './hooks/use-dock-panel'
 import { useInputHistory } from './hooks/use-input-history'
 import { usePublishMutation } from './hooks/use-publish-mutation'
-import { useSendMessage } from './hooks/use-send-message'
 import { useSuggestionEngine } from './hooks/use-suggestion-engine'
 import { useUsageMonitor } from './hooks/use-usage-monitor'
 import { WEBSITE_URL } from './login/constants'
 import { getProjectRoot } from './project-files'
 import { useChatHistoryStore } from './state/chat-history-store'
 import { useChatStore } from './state/chat-store'
+import { useQueuePanelStore } from './state/queue-panel-store'
 import { useReviewStore } from './state/review-store'
 import { useFeedbackStore } from './state/feedback-store'
 import { useMessageBlockStore } from './state/message-block-store'
 import { usePublishStore } from './state/publish-store'
 import { reportActivity } from './utils/activity-tracker'
+import { stopActiveRun } from './utils/active-run'
 import { trackEvent } from './utils/analytics'
 import { showClipboardMessage } from './utils/clipboard'
 import { readClipboardImage } from './utils/clipboard-image'
@@ -99,37 +115,30 @@ import type { FreebuffSessionResponse } from './types/freebuff-session'
 import type { User } from './utils/auth'
 import type { AgentMode } from './utils/constants'
 import type { FileTreeNode } from '@codebuff/common/util/file'
-import type { ScrollBoxRenderable } from '@opentui/core'
+import type { BoxRenderable, ScrollBoxRenderable } from '@opentui/core'
 import type { UseMutationResult } from '@tanstack/react-query'
+import type { SponsoredProposalContentBlock } from './types/chat'
 import type { Dispatch, SetStateAction } from 'react'
 
 export const Chat = ({
-  headerContent,
-  initialPrompt,
-  agentId,
+  consumeInitialPrompt,
   fileTree,
   inputRef,
   setIsAuthenticated,
   setUser,
   logoutMutation,
-  continueChat,
-  continueChatId,
   authStatus,
   initialMode,
   gitRoot,
   onSwitchToGitRoot,
   freebuffSession,
 }: {
-  headerContent: React.ReactNode
-  initialPrompt: string | null
-  agentId?: string
+  consumeInitialPrompt: () => string | null
   fileTree: FileTreeNode[]
   inputRef: React.MutableRefObject<MultilineInputHandle | null>
   setIsAuthenticated: Dispatch<SetStateAction<boolean | null>>
   setUser: Dispatch<SetStateAction<User | null>>
   logoutMutation: UseMutationResult<boolean, Error, void, unknown>
-  continueChat: boolean
-  continueChatId?: string
   authStatus: AuthStatus
   initialMode?: AgentMode
   gitRoot?: string | null
@@ -137,14 +146,14 @@ export const Chat = ({
   freebuffSession: FreebuffSessionResponse | null
 }) => {
   const [forceFileOnlyMentions, setForceFileOnlyMentions] = useState(false)
+  const headerRef = useRef<BoxRenderable | null>(null)
+  const [isHeaderVisible, setIsHeaderVisible] = useState(true)
 
   // First-time onboarding: show clickable starter prompts until the user
   // submits their first prompt ever (persisted in settings). Freebuff only.
   const [showSuggestedPrompts, setShowSuggestedPrompts] = useState(
     () => IS_FREEBUFF && !hasSubmittedFirstPrompt(),
   )
-
-  const { validate: validateAgents } = useAgentValidation()
 
   // Subscribe to ask_user bridge to trigger form display
   useAskUserBridge()
@@ -172,28 +181,258 @@ export const Chat = ({
     setAgentMode,
     toggleAgentMode,
     isRetrying,
+    isCapacityWait,
     pendingBashMessages,
-    refs: {
-      activeAgentStreamsRef,
-      isChainInProgressRef,
-      activeSubagentsRef,
-      abortControllerRef,
-      sendMessageRef,
-    },
   } = useChatState()
 
   const { statusMessage } = useClipboard()
-
-  // Fetch subscription data early - needed for session credits tracking and ad gating
-  const { data: subscriptionData } = useSubscriptionQuery({
-    refetchInterval: 60 * 1000,
-  })
+  const {
+    isChainInProgressRef,
+    sendMessage,
+    clearMessages,
+    subscriptionData,
+    registerScrollToLatest,
+    queuedMessages,
+    editQueuedMessage,
+    removeQueuedMessage,
+    moveQueuedMessage,
+  } = useChatRuntime()
   const hasSubscription = subscriptionData?.hasSubscription ?? false
 
-  const { ads, recordClick, recordImpression } = useGravityAd({
+  const {
+    ads,
+    responseAds,
+    requestResponseAds,
+    recordClick,
+    recordImpression,
+  } = useGravityAd({
     enabled: IS_FREEBUFF || !hasSubscription,
     provider: 'gravity',
+    inline: true,
+    surface: 'cli_chat',
+    // Lazily fill a four-ad pool, then repeat it for later transcript slots.
+    inlinePlacementId: 'CLI-Chat-Inline',
+    // Keep the rotating above-input slot separate for reporting continuity.
+    slotPlacementId: 'Single-Ad-Unit-1',
   })
+  const showInlineAds = IS_FREEBUFF || getAdsEnabled()
+
+  // Stable identities so the message-block callbacks (set once) always call
+  // the latest recorder from the hook.
+  const handleAdClick = useEvent(recordClick)
+  const handleAdImpression = useEvent(recordImpression)
+
+  const handleResponseAdsNeeded = useEvent(requestResponseAds)
+
+  // ------------------------------------------------- sponsored proposals
+
+  /**
+   * Patch the one sponsored-proposal block for a target, wherever it sits.
+   *
+   * BY TARGET rather than by message id: a repository has one live offer, and
+   * if it were ever rendered twice, declining it in one place must not leave it
+   * standing in the other.
+   */
+  // The transcript as of this render. A control has to find its own block
+  // synchronously -- `busy` is what makes a double press inert, and reading it
+  // out of a `setMessages` updater would be a check inside a state write.
+  const messagesRef = useRef(messages)
+  messagesRef.current = messages
+
+  const patchProposalBlock = useEvent(
+    (target: string, patch: Partial<SponsoredProposalContentBlock>) => {
+      setMessages((prev) =>
+        prev.map((message) =>
+          message.blocks?.some(
+            (block) =>
+              isSponsoredProposalBlock(block) && block.target === target,
+          )
+            ? {
+                ...message,
+                blocks: message.blocks.map((block) =>
+                  isSponsoredProposalBlock(block) && block.target === target
+                    ? { ...block, ...patch }
+                    : block,
+                ),
+              }
+            : message,
+        ),
+      )
+    },
+  )
+
+  const findProposalBlock = useEvent((target: string) => {
+    for (const message of messagesRef.current) {
+      for (const block of message.blocks ?? []) {
+        if (isSponsoredProposalBlock(block) && block.target === target) {
+          return block
+        }
+      }
+    }
+    return null
+  })
+
+  // Whether a card is currently holding the keyboard. Derived from the
+  // transcript rather than kept as its own flag: the menu is a property of a
+  // block, and a second source of truth would go stale the moment a block is
+  // answered or replaced while its menu is open.
+  //
+  // AN OPEN CONSENT COUNTS TOO (COD-339), and it matters more than the menu
+  // does: its Enter answers "run an advertiser's procedure on this machine",
+  // and an Enter that also reached the composer would send a prompt at the same
+  // time as it approved a run.
+  const sponsoredProposalMenuOpen = useMemo(
+    () =>
+      messages.some((message) =>
+        message.blocks?.some(
+          (block) =>
+            isSponsoredProposalBlock(block) &&
+            (block.menuOpen === true || block.consent !== undefined) &&
+            block.answered !== true,
+        ),
+      ),
+    [messages],
+  )
+
+  const handleSponsoredProposalMenu = useEvent((target: string, open: boolean) =>
+    patchProposalBlock(target, { menuOpen: open }),
+  )
+  const handleSponsoredProposalDisclose = useEvent(
+    (target: string, open: boolean) => patchProposalBlock(target, { whyOpen: open }),
+  )
+
+  const handleSponsoredProposalControl = useEvent(
+    (
+      target: string,
+      control: 'dismiss' | 'report' | 'never-advertiser' | 'opt-out',
+    ) => {
+      const block = findProposalBlock(target)
+      const authToken = getAuthToken()
+      // `busy` is checked before the await, not after: the impatient double
+      // press is synchronous, and a guard on the far side of a promise arrives
+      // too late to stop the second call.
+      if (
+        !block || block.busy || block.answered ||
+        block.refreshUnavailable || !authToken
+      ) return
+      patchProposalBlock(target, { busy: true, menuOpen: false })
+      const proposalId = block.proposal._id
+      const advertiserId = block.proposal.advertiser_id
+      void (async () => {
+        let succeeded = false
+        try {
+          // The ordering rules -- preference before dismiss, and the
+          // preference's RESULT deciding whether the dismiss happens at all --
+          // live in `runSponsoredProposalControl` so they can be tested
+          // without a network and without mounting chat.
+          succeeded = await runSponsoredProposalControl(
+            control,
+            { proposalId, advertiserId },
+            authToken,
+          )
+        } finally {
+          // ANSWERED ONLY WHEN IT WAS. `answered` stands the card's controls
+          // down permanently, so setting it in a `finally` marked a failed
+          // control as an answer the user gave: the card stayed on screen
+          // looking spent, with no way to retry and nothing saved.
+          //
+          // ANSWERED, not removed, when it did succeed. The card stays in the
+          // transcript with its controls stood down, because a block that
+          // vanishes reflows text the user is reading and leaves history
+          // claiming the offer never happened.
+          patchProposalBlock(
+            target,
+            succeeded ? { busy: false, answered: true } : { busy: false },
+          )
+          if (!succeeded) {
+            // Said out loud, unlike the transport's own debug log. Everything
+            // else in this channel is optional and stays quiet, but this is the
+            // one moment the user made a request of us and the card must not
+            // silently keep the answer.
+            setMessages((prev) => [
+              ...prev,
+              getSystemMessage("Couldn't save that — try again"),
+            ])
+          }
+        }
+      })()
+    },
+  )
+
+  /**
+   * Accept, in two halves (COD-339, COD-336 item 4).
+   *
+   * The first half OPENS the consent and writes nothing anywhere -- not
+   * upstream, not on disk. Everything the screen names is known before the
+   * accept, which is exactly what makes a refusal free: there is nothing to
+   * undo. The branch is minted here with the run id it will be created under,
+   * so the branch the screen names is the branch that is cut.
+   */
+  const handleSponsoredProposalAccept = useEvent((target: string) => {
+    const block = findProposalBlock(target)
+    if (
+      !block || block.busy || block.answered ||
+      block.refreshUnavailable || block.consent
+    ) return
+    void (async () => {
+      const run = sponsoredRunFor(getProjectRoot())
+      const consent = await run.consentFor(block.proposal)
+      if (!consent.ok) {
+        setMessages((prev) => [...prev, getSystemMessage(consent.message)])
+        return
+      }
+      patchProposalBlock(target, {
+        menuOpen: false,
+        consent: { ...consent.consent, runId: consent.runId },
+        consentIndex: 0,
+      })
+    })()
+  })
+
+  /**
+   * The consent's answer.
+   *
+   * A REFUSAL CLOSES THE SCREEN AND DOES NOTHING ELSE. Not a dismiss, not a
+   * decline recorded upstream -- the user said "not now" to running something,
+   * which is not the same as saying they never want to see it, and conflating
+   * the two would spend a control they did not press.
+   */
+  const handleSponsoredProposalConsent = useEvent(
+    (target: string, approved: boolean) => {
+      const block = findProposalBlock(target)
+      const consent = block?.consent
+      if (!block || !consent) return
+      patchProposalBlock(target, { consent: undefined, consentIndex: 0 })
+      if (!approved) return
+      patchProposalBlock(target, { busy: true })
+      void (async () => {
+        const run = sponsoredRunFor(getProjectRoot())
+        const outcome = await run.accept(block.proposal, consent.runId)
+        // `runStarted` is what makes the poller watch: the row upstream still
+        // reads `offered` until the first poll after the accept, and keying the
+        // cadence on the state alone would slow it down at exactly the moment
+        // watching starts to matter.
+        patchProposalBlock(target, {
+          busy: false,
+          ...(outcome.ok ? { runStarted: true } : {}),
+        })
+        setMessages((prev) => [
+          ...prev,
+          getSystemMessage(
+            outcome.ok
+              ? `Started ${consent.advertiserName}'s sponsored task on ${consent.branch}. Nothing will be pushed.`
+              : 'message' in outcome
+                ? outcome.message
+                : 'The sponsored task was not started.',
+          ),
+        ])
+      })()
+    },
+  )
+
+  // Mounted here rather than inside the card, because the card does not exist
+  // until this hook puts it there (COD-339: nothing polled before it).
+  useSponsoredProposal()
 
   // Set initial mode from CLI flag on mount
   useEffect(() => {
@@ -231,6 +470,78 @@ export const Chat = ({
     theme,
     markdownPalette,
   } = useChatUI({ messages, isUserCollapsing })
+
+  useEffect(
+    () => registerScrollToLatest(scrollToLatest),
+    [registerScrollToLatest, scrollToLatest],
+  )
+
+  // The sponsor dock's detail panel (COD-457). `enabled` is the surface gate,
+  // not the experiment: the arm itself comes from the policy route, and every
+  // failure there lands on control.
+  //
+  // `canExpand` is computed HERE rather than inside the hook because only this
+  // component knows the terminal height. Passing it in is what stops a toggle
+  // parking the dock in an open state that renders nothing on a short
+  // terminal: below roughly 22 rows the budget leaves fewer rows than the
+  // smallest panel needs, and accepting the toggle there hid the chord hint
+  // and required Escape to clear a state the user could not see.
+  const dockPanelFits = useMemo(() => {
+    const ad = ads?.[0]
+    if (!ad) return false
+    return getDockPanelLayout(ad, {
+      width: Math.min(DOCK_PANEL_MAX_WIDTH, terminalWidth - 2),
+      availableRows: dockPanelRowBudget(terminalHeight),
+    }).fits
+  }, [ads, terminalWidth, terminalHeight])
+
+  const dockPanel = useDockPanel({
+    ad: ads?.[0],
+    enabled: showInlineAds,
+    canExpand: dockPanelFits,
+  })
+
+  const updateHeaderVisibility = useCallback(() => {
+    const header = headerRef.current
+    const viewport = scrollRef.current?.viewport
+    if (!header || !viewport) return
+
+    const headerTop = header.screenY
+    const headerBottom = headerTop + header.height
+    const viewportTop = viewport.screenY
+    const viewportBottom = viewportTop + viewport.height
+    const visible = headerTop < viewportBottom && headerBottom > viewportTop
+    setIsHeaderVisible((current) => (current === visible ? current : visible))
+  }, [scrollRef])
+
+  useEffect(() => {
+    const scrollbox = scrollRef.current
+    if (!scrollbox) return
+
+    const timeoutId = setTimeout(updateHeaderVisibility, 0)
+    scrollbox.verticalScrollBar.on('change', updateHeaderVisibility)
+    return () => {
+      clearTimeout(timeoutId)
+      scrollbox.verticalScrollBar.off('change', updateHeaderVisibility)
+    }
+  }, [scrollRef, updateHeaderVisibility])
+
+  useEffect(() => {
+    const timeoutId = setTimeout(updateHeaderVisibility, 0)
+    return () => clearTimeout(timeoutId)
+  }, [messages, terminalHeight, terminalWidth, updateHeaderVisibility])
+
+  // Surface server capacity deferrals (free-mode tier shedding under peak
+  // demand): the SDK's retry loop absorbs the 429s silently, so without this
+  // the user just sees a longer unexplained "thinking". The stream-chunk
+  // handlers clear the flag (via setIsRetrying(false)) as soon as real
+  // output resumes.
+  useEffect(() => {
+    setFreeModeCapacityDeferralListener(() => {
+      useChatStore.getState().noteCapacityDeferral()
+    })
+    return () => setFreeModeCapacityDeferralListener(null)
+  }, [])
 
   const localAgents = useMemo(() => loadLocalAgents(agentMode), [agentMode])
   const inputMode = useChatStore((state) => state.inputMode)
@@ -370,40 +681,27 @@ export const Chat = ({
   const {
     isConnected,
     showReconnectionMessage,
-    mainAgentTimer,
     timerStartTime,
     streamStatus,
     isWaitingForResponse,
     isStreaming,
-    setStreamStatus,
-    queuedMessages,
     queuePaused,
     streamMessageIdRef,
     addToQueue,
-    stopStreaming,
     setCanProcessQueue,
-    pauseQueue,
-    resumeQueue,
     clearQueue,
-    isQueuePausedRef,
-    isProcessingQueueRef,
     queuedCount,
     shouldShowQueuePreview,
-    queuePreviewTitle,
-    pausedQueueText,
+    inputBoxTitle,
     inputPlaceholder,
     handleCtrlC,
     ensureQueueActiveBeforeSubmit,
     nextCtrlCWillExit,
   } = useChatStreaming({
-    agentMode,
     inputValue,
     setInputValue,
     terminalWidth,
     separatorWidth,
-    isChainInProgressRef,
-    activeAgentStreamsRef,
-    sendMessageRef,
   })
 
   // When streaming completes, flush any pending bash commands into history (ghost mode only)
@@ -445,28 +743,6 @@ export const Chat = ({
     }
   }, [isStreaming, pendingBashMessages, setMessages])
 
-  const { sendMessage, clearMessages } = useSendMessage({
-    inputRef,
-    activeSubagentsRef,
-    isChainInProgressRef,
-    setStreamStatus,
-    setCanProcessQueue,
-    abortControllerRef,
-    agentId,
-    onBeforeMessageSend: validateAgents,
-    mainAgentTimer,
-    scrollToLatest,
-    onTimerEvent: () => {},
-    isQueuePausedRef,
-    isProcessingQueueRef,
-    resumeQueue,
-    continueChat,
-    continueChatId,
-    subscriptionData,
-  })
-
-  sendMessageRef.current = sendMessage
-
   const onSubmitPrompt = useEvent(
     async (
       content: string,
@@ -501,7 +777,6 @@ export const Chat = ({
 
       try {
         const result = await routeUserPrompt({
-          abortControllerRef,
           agentMode: mode,
           inputRef,
           inputValue: content,
@@ -510,6 +785,7 @@ export const Chat = ({
           logoutMutation,
           streamMessageIdRef,
           addToQueue,
+          hasQueuedMessages: () => queuedCount > 0,
           clearMessages,
           saveToHistory,
           scrollToLatest,
@@ -520,7 +796,6 @@ export const Chat = ({
           setIsAuthenticated,
           setMessages,
           setUser,
-          stopStreaming,
         })
 
         return result
@@ -668,7 +943,7 @@ export const Chat = ({
       agentMode,
       setAgentMode,
       separatorWidth,
-      initialPrompt,
+      consumeInitialPrompt,
       onSubmitPrompt,
       isCompactHeight,
       isNarrowWidth,
@@ -711,6 +986,29 @@ export const Chat = ({
     })),
   )
 
+  const { queuePanelOpen, openQueuePanel, closeQueuePanel } =
+    useQueuePanelStore(
+      useShallow((state) => ({
+        queuePanelOpen: state.queuePanelOpen,
+        openQueuePanel: state.openQueuePanel,
+        closeQueuePanel: state.closeQueuePanel,
+      })),
+    )
+
+  // Review and ask_user take the composer's place too. Leaving the panel
+  // flagged open behind them would keep chat's keyboard disabled with nothing
+  // rendered to handle keys, so hand the surface back for real.
+  useEffect(() => {
+    if (queuePanelOpen && (reviewMode || askUserState !== null)) {
+      closeQueuePanel()
+    }
+  }, [queuePanelOpen, reviewMode, askUserState, closeQueuePanel])
+
+  // The panel store outlives this component and a Freebuff session can end on
+  // its own, unmounting chat mid-edit. Without this, the next session would
+  // open onto a panel for a queue that no longer exists.
+  useEffect(() => () => useQueuePanelStore.getState().closeQueuePanel(), [])
+
   const publishMutation = usePublishMutation()
 
   const handleCommandResult = useCallback(
@@ -746,12 +1044,21 @@ export const Chat = ({
       if (result.openReviewScreen) {
         useReviewStore.getState().openReviewScreen()
       }
+
+      if (result.openQueuePanel) {
+        // The panel closes itself once the queue drains, so opening an empty
+        // one would just flash. Say so instead.
+        if (queuedCount > 0) useQueuePanelStore.getState().openQueuePanel()
+        else setMessages((prev) => [...prev, getSystemMessage('Nothing queued.')])
+      }
     },
     [
       saveCurrentInput,
       openFeedbackForMessage,
       openPublishMode,
       preSelectAgents,
+      queuedCount,
+      setMessages,
     ],
   )
 
@@ -905,6 +1212,14 @@ export const Chat = ({
     setInputFocused(true)
   }, [closeReviewScreen, setInputFocused])
 
+  // The panel took the composer's place, so give the keyboard back to it the
+  // same way the review screen does.
+  const handleCloseQueuePanel = useCallback(() => {
+    closeQueuePanel()
+    setInputFocused(true)
+    inputRef.current?.focus()
+  }, [closeQueuePanel, setInputFocused, inputRef])
+
   const handleReviewCustom = useCallback(() => {
     closeReviewScreen()
     setInputMode('review')
@@ -932,13 +1247,15 @@ export const Chat = ({
   const handleSubmit = useCallback(async () => {
     // Report activity for ad rotation
     reportActivity()
+    // A new send collapses the panel: the user has moved on from the ad.
+    dockPanel.collapse('send')
     // Update terminal title with truncated user input
     if (inputValue.trim()) {
       setTerminalTitle(inputValue)
     }
     const result = await onSubmitPrompt(inputValue, agentMode)
     handleCommandResult(result)
-  }, [onSubmitPrompt, inputValue, agentMode, handleCommandResult])
+  }, [onSubmitPrompt, inputValue, agentMode, handleCommandResult, dockPanel])
 
   const totalMentionMatches = agentMatches.length + fileMatches.length
   const historyNavUpEnabled =
@@ -980,6 +1297,8 @@ export const Chat = ({
       nextCtrlCWillExit,
       queuePaused,
       queuedCount,
+      dockExpandable: dockPanel.expandable,
+      dockPanelOpen: dockPanel.expanded,
     }),
     [
       inputMode,
@@ -1002,6 +1321,8 @@ export const Chat = ({
       nextCtrlCWillExit,
       queuePaused,
       queuedCount,
+      dockPanel.expandable,
+      dockPanel.expanded,
     ],
   )
 
@@ -1018,10 +1339,7 @@ export const Chat = ({
         setInputValue({ text: '', cursorPosition: 0, lastEditDueToNav: false }),
       onBackspaceExitMode: () => setInputMode('default'),
       onInterruptStream: () => {
-        abortControllerRef.current?.abort()
-        if (queuedMessages.length > 0) {
-          pauseQueue()
-        }
+        stopActiveRun('user-interrupt')
       },
       onSlashMenuDown: () => setSlashSelectedIndex((prev) => prev + 1),
       onSlashMenuUp: () => setSlashSelectedIndex((prev) => prev - 1),
@@ -1160,6 +1478,7 @@ export const Chat = ({
         inputRef.current?.focus()
       },
       onClearQueue: clearQueue,
+      onOpenQueuePanel: openQueuePanel,
       onExitAppWarning: () => handleCtrlC(),
       onExitApp: () => handleCtrlC(),
       onBashHistoryUp: navigateUp,
@@ -1220,15 +1539,15 @@ export const Chat = ({
         // Otherwise open the buy credits page
         safeOpen(WEBSITE_URL + '/usage')
       },
+      onToggleDockPanel: () => dockPanel.toggle('key'),
+      onCloseDockPanel: () => dockPanel.collapse('esc'),
     }),
     [
+      dockPanel,
       setInputMode,
       handleCloseFeedback,
       setFeedbackText,
       setInputValue,
-      abortControllerRef,
-      queuedMessages.length,
-      pauseQueue,
       setSlashSelectedIndex,
       slashMatches,
       slashSelectedIndex,
@@ -1253,6 +1572,7 @@ export const Chat = ({
       inputRef,
       handleCtrlC,
       clearQueue,
+      openQueuePanel,
       scrollUp,
       scrollDown,
       handleToggleAll,
@@ -1263,7 +1583,18 @@ export const Chat = ({
   useChatKeyboard({
     state: chatKeyboardState,
     handlers: chatKeyboardHandlers,
-    disabled: askUserState !== null || reviewMode,
+    // `sponsoredProposalMenuOpen` joins askUser for exactly the same reason
+    // askUser is here (COD-376): both take over the keyboard, and `useKeyboard`
+    // is a GLOBAL listener rather than a focus-scoped one -- so without this,
+    // the menu's arrows, Enter and Esc would reach the card AND the composer,
+    // and the user would move a selection while also navigating history. The
+    // card claims no keys at all outside this span; that is what makes turning
+    // chat's off for the span safe rather than a second overlap.
+    disabled:
+      askUserState !== null ||
+      reviewMode ||
+      queuePanelOpen ||
+      sponsoredProposalMenuOpen,
   })
 
   // Sync message block context to zustand store for child components
@@ -1284,6 +1615,7 @@ export const Chat = ({
       isWaitingForResponse,
       timerStartTime,
       availableWidth: messageAvailableWidth,
+      responseAds: showInlineAds ? responseAds : {},
     })
   }, [
     theme,
@@ -1292,6 +1624,8 @@ export const Chat = ({
     isWaitingForResponse,
     timerStartTime,
     messageAvailableWidth,
+    responseAds,
+    showInlineAds,
     setMessageBlockContext,
   ])
 
@@ -1304,6 +1638,14 @@ export const Chat = ({
       onBuildLite: handleBuildLite,
       onFeedback: handleMessageFeedback,
       onCloseFeedback: handleCloseFeedback,
+      onAdClick: handleAdClick,
+      onAdImpression: handleAdImpression,
+      onResponseAdsNeeded: handleResponseAdsNeeded,
+      onSponsoredProposalMenu: handleSponsoredProposalMenu,
+      onSponsoredProposalDisclose: handleSponsoredProposalDisclose,
+      onSponsoredProposalAccept: handleSponsoredProposalAccept,
+      onSponsoredProposalConsent: handleSponsoredProposalConsent,
+      onSponsoredProposalControl: handleSponsoredProposalControl,
     })
   }, [
     handleCollapseToggle,
@@ -1312,6 +1654,9 @@ export const Chat = ({
     handleBuildLite,
     handleMessageFeedback,
     handleCloseFeedback,
+    handleAdClick,
+    handleAdImpression,
+    handleResponseAdsNeeded,
     setMessageBlockCallbacks,
   ])
 
@@ -1386,6 +1731,7 @@ export const Chat = ({
     authStatus,
     showReconnectionMessage,
     isRetrying,
+    isCapacityWait,
     isAskUserActive: askUserState !== null,
   })
   const hasStatusIndicatorContent = statusIndicatorState.kind !== 'idle'
@@ -1412,26 +1758,25 @@ export const Chat = ({
     }
   }, [subscriptionRateLimit?.limited, fallbackToALaCarte])
 
-  const inputBoxTitle = useMemo(() => {
-    const segments: string[] = []
-
-    if (queuePreviewTitle) {
-      segments.push(queuePreviewTitle)
-    } else if (pausedQueueText) {
-      segments.push(`⏸ ${pausedQueueText}`)
-    }
-
-    if (segments.length === 0) {
-      return undefined
-    }
-
-    return ` ${segments.join('   ')} `
-  }, [queuePreviewTitle, pausedQueueText])
-
   const hasActiveFreebuffSession =
     IS_FREEBUFF && freebuffSession?.status === 'active'
   const isFreebuffSessionOver =
     IS_FREEBUFF && freebuffSession?.status === 'ended'
+
+  // A takeover screen owns both the keyboard and the rows above the composer.
+  // Rather than teach the panel to arbitrate with four other Escape handlers,
+  // it simply closes for the duration -- and `collapse` is a no-op when it was
+  // already shut, so this fires exactly one `dock_collapsed`.
+  const dockTakeoverActive =
+    askUserState !== null ||
+    reviewMode ||
+    queuePanelOpen ||
+    sponsoredProposalMenuOpen ||
+    isFreebuffSessionOver
+  useEffect(() => {
+    if (dockTakeoverActive) dockPanel.collapse('outside')
+  }, [dockTakeoverActive, dockPanel])
+
   const shouldShowStatusLine =
     !feedbackMode &&
     (hasStatusIndicatorContent ||
@@ -1503,7 +1848,15 @@ export const Chat = ({
       >
         <TopBanner gitRoot={gitRoot} onSwitchToGitRoot={onSwitchToGitRoot} />
 
-        {headerContent}
+        <box
+          ref={headerRef as React.Ref<BoxRenderable>}
+          style={{ flexDirection: 'column' }}
+        >
+          <ChatHeader
+            projectRoot={getProjectRoot()}
+            animationEnabled={isHeaderVisible && inputFocused}
+          />
+        </box>
         {IS_FREEBUFF && (
           <FreebuffActiveSessionSummary session={freebuffSession} />
         )}
@@ -1513,18 +1866,15 @@ export const Chat = ({
             onLoadMore={handleLoadPreviousMessages}
           />
         )}
-        {visibleTopLevelMessages.map((message, idx) => {
-          const isLast = idx === visibleTopLevelMessages.length - 1
-          return (
-            <MessageWithAgents
-              key={message.id}
-              message={message}
-              depth={0}
-              isLastMessage={isLast}
-              availableWidth={messageAvailableWidth}
-            />
-          )
-        })}
+        {visibleTopLevelMessages.map((message, idx) => (
+          <MessageWithAgents
+            key={message.id}
+            message={message}
+            depth={0}
+            isLastMessage={idx === visibleTopLevelMessages.length - 1}
+            availableWidth={messageAvailableWidth}
+          />
+        ))}
         {/* Pending bash messages as ghost messages (only show those not already in history) */}
         {pendingBashMessages
           .filter((msg) => !msg.addedToHistory)
@@ -1564,11 +1914,26 @@ export const Chat = ({
           />
         )}
 
-        {ads?.[0] && (IS_FREEBUFF || getAdsEnabled()) && (
+        {ads?.[0] && showInlineAds && (
           <SingleAdBanner
             ad={ads[0]}
             onClick={recordClick}
             onImpression={recordImpression}
+            arm={dockPanel.arm}
+            // A takeover screen owns the keyboard and the space above the
+            // composer, so the panel is force-closed for its duration rather
+            // than fighting it for Escape.
+            expanded={dockPanel.expanded && !dockTakeoverActive}
+            chordHint={DOCK_CHORD_HINT}
+            panelRows={dockPanelRowBudget(terminalHeight)}
+            onToggle={() => dockPanel.toggle('click')}
+            onClose={() => dockPanel.collapse('close')}
+            // One click, one event: the dock's metadata rides the click
+            // acknowledgement so the canonical server-side `ads.clicked`
+            // carries it, rather than a second client-side event beside it.
+            onDockClick={(clickedAd, from) =>
+              recordClick(clickedAd, dockPanel.clickContext(from))
+            }
           />
         )}
 
@@ -1582,6 +1947,16 @@ export const Chat = ({
             onSelectOption={handleReviewOptionSelect}
             onCustom={handleReviewCustom}
             onCancel={handleCloseReviewScreen}
+          />
+        ) : queuePanelOpen && !askUserState ? (
+          <QueuePanel
+            queuedMessages={queuedMessages}
+            onEdit={editQueuedMessage}
+            onDelete={removeQueuedMessage}
+            onMove={moveQueuedMessage}
+            onClose={handleCloseQueuePanel}
+            width={separatorWidth}
+            maxVisibleRows={isCompactHeight ? 4 : 8}
           />
         ) : isFreebuffSessionOver && !askUserState ? (
           <SessionEndedBanner
@@ -1615,6 +1990,7 @@ export const Chat = ({
               separatorWidth={separatorWidth}
               shouldCenterInputVertically={shouldCenterInputVertically}
               inputBoxTitle={inputBoxTitle}
+              onQueuePreviewClick={openQueuePanel}
               isCompactHeight={isCompactHeight}
               isNarrowWidth={isNarrowWidth}
               feedbackMode={feedbackMode}

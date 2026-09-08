@@ -2,6 +2,7 @@ import { AnalyticsEvent } from '@codebuff/common/constants/analytics-events'
 import { isFreeMode } from '@codebuff/common/constants/free-agents'
 import { models, PROFIT_MARGIN } from '@codebuff/common/old-constants'
 import { buildArray } from '@codebuff/common/util/array'
+import { STREAM_RECOVERY_EVENT } from '@codebuff/common/util/axiom-only-log'
 import { normalizeProviderRequestBodyForCacheDebug } from '@codebuff/common/util/cache-debug'
 import {
   getErrorObject,
@@ -14,7 +15,7 @@ import { StopSequenceHandler } from '@codebuff/common/util/stop-sequence'
 import {
   streamText,
   generateText,
-  generateObject,
+  Output,
   NoSuchToolError,
   APICallError,
   ToolCallRepairError,
@@ -22,14 +23,21 @@ import {
   TypeValidationError,
 } from 'ai'
 
+import { refreshChatGptOAuthToken } from '../credentials'
+import { getErrorStatusCode } from '../error-utils'
+
 import {
   getModelForRequest,
   markChatGptOAuthRateLimited,
 } from './model-provider'
-import { refreshChatGptOAuthToken } from '../credentials'
-import { getErrorStatusCode } from '../error-utils'
+import {
+  classifyStreamEndRecovery,
+  classifyThrownStreamRecovery,
+  streamFinishInfoOf,
+  type StreamEndRecovery,
+  type StreamFinishInfo,
+} from './stream-interruption'
 
-import type { ModelRequestParams } from './model-provider'
 import type {
   OpenRouterProviderOptions,
   OpenRouterProviderRoutingOptions,
@@ -41,9 +49,8 @@ import type {
   PromptAiSdkStructuredOutput,
 } from '@codebuff/common/types/contracts/llm'
 import type { ParamsOf } from '@codebuff/common/types/function-params'
-import type { JSONObject } from '@codebuff/common/types/json'
+import type { ProviderMetadata } from '@codebuff/common/types/messages/provider-metadata'
 import type { LanguageModel } from 'ai'
-import type z from 'zod/v4'
 
 // Provider routing documentation: https://openrouter.ai/docs/features/provider-routing
 const providerOrder = {
@@ -70,13 +77,13 @@ export function getProviderOptions(params: {
   model: string
   runId: string
   clientSessionId: string
-  providerOptions?: Record<string, JSONObject>
+  providerOptions?: ProviderMetadata
   agentProviderOptions?: OpenRouterProviderRoutingOptions
   n?: number
   costMode?: string
   cacheDebugCorrelation?: string
   extraCodebuffMetadata?: Record<string, string>
-}): { codebuff: JSONObject } {
+}): ProviderMetadata {
   const {
     model,
     runId,
@@ -202,6 +209,32 @@ function isOAuthAuthError(error: unknown): boolean {
   return false
 }
 
+export type ChatGptOAuthStreamErrorPolicy =
+  'fallback-rate-limit' | 'fail-auth-reconnect' | 'fail-fast' | 'ignore'
+
+export function classifyChatGptOAuthStreamError(params: {
+  isChatGptOAuth: boolean
+  skipChatGptOAuth?: boolean
+  hasYieldedContent: boolean
+  error: unknown
+}): ChatGptOAuthStreamErrorPolicy {
+  const { isChatGptOAuth, skipChatGptOAuth, hasYieldedContent, error } = params
+
+  if (!isChatGptOAuth || skipChatGptOAuth || hasYieldedContent) {
+    return 'ignore'
+  }
+
+  if (isOAuthRateLimitError(error)) {
+    return 'fallback-rate-limit'
+  }
+
+  if (isOAuthAuthError(error)) {
+    return 'fail-auth-reconnect'
+  }
+
+  return 'fail-fast'
+}
+
 function getModelProvider(model: LanguageModel): string {
   if (typeof model === 'string') return model
   return model.provider
@@ -234,6 +267,7 @@ function emitCacheDebugUsage(params: {
   callback?: (usage: {
     inputTokens: number
     outputTokens: number
+    reasoningOutputTokens?: number
     cachedInputTokens: number
     totalTokens: number
   }) => void
@@ -241,7 +275,12 @@ function emitCacheDebugUsage(params: {
     inputTokens?: number
     outputTokens?: number
     totalTokens?: number
-    cachedInputTokens?: number
+    inputTokenDetails?: {
+      cacheReadTokens?: number
+    }
+    outputTokenDetails?: {
+      reasoningTokens?: number
+    }
   }
 }) {
   if (!params.callback) return
@@ -249,38 +288,15 @@ function emitCacheDebugUsage(params: {
   params.callback({
     inputTokens: params.usage.inputTokens ?? 0,
     outputTokens: params.usage.outputTokens ?? 0,
-    cachedInputTokens: params.usage.cachedInputTokens ?? 0,
+    ...(params.usage.outputTokenDetails?.reasoningTokens !== undefined
+      ? {
+          reasoningOutputTokens:
+            params.usage.outputTokenDetails.reasoningTokens,
+        }
+      : {}),
+    cachedInputTokens: params.usage.inputTokenDetails?.cacheReadTokens ?? 0,
     totalTokens: params.usage.totalTokens ?? 0,
   })
-}
-
-export type ChatGptOAuthStreamErrorPolicy =
-  | 'fallback-rate-limit'
-  | 'fail-auth-reconnect'
-  | 'fail-fast'
-  | 'ignore'
-
-export function classifyChatGptOAuthStreamError(params: {
-  isChatGptOAuth: boolean
-  skipChatGptOAuth?: boolean
-  hasYieldedContent: boolean
-  error: unknown
-}): ChatGptOAuthStreamErrorPolicy {
-  const { isChatGptOAuth, skipChatGptOAuth, hasYieldedContent, error } = params
-
-  if (!isChatGptOAuth || skipChatGptOAuth || hasYieldedContent) {
-    return 'ignore'
-  }
-
-  if (isOAuthRateLimitError(error)) {
-    return 'fallback-rate-limit'
-  }
-
-  if (isOAuthAuthError(error)) {
-    return 'fail-auth-reconnect'
-  }
-
-  return 'fail-fast'
 }
 
 export async function* promptAiSdkStream(
@@ -312,44 +328,40 @@ export async function* promptAiSdkStream(
     return promptAborted('User cancelled input')
   }
 
-  const modelParams: ModelRequestParams = {
+  const { model: aiSDKModel, isChatGptOAuth } = await getModelForRequest({
     apiKey: params.apiKey,
     model: params.model,
+    userId: params.userId,
+    agentId: params.agentId,
     skipChatGptOAuth: params.skipChatGptOAuth,
     costMode: params.costMode,
-    agentId: params.agentId,
-  }
-  const { model: aiSDKModel, isChatGptOAuth } =
-    await getModelForRequest(modelParams)
+  })
 
   if (isChatGptOAuth) {
     trackEvent({
       event: AnalyticsEvent.CHATGPT_OAUTH_REQUEST,
       userId: userId ?? '',
-      properties: {
-        model: requestedModel,
-        userInputId,
-      },
+      properties: { model: requestedModel, userInputId },
       logger,
     })
   }
 
   const response = streamText({
     ...streamParams,
+    abortSignal: params.signal,
     prompt: undefined,
     model: aiSDKModel,
     messages: convertCbToModelMessages(params),
-    ...(isChatGptOAuth && { maxRetries: 0 }),
-    // For ChatGPT OAuth direct, don't send codebuff metadata/provider options to OpenAI
-    ...(isChatGptOAuth
-      ? {}
-      : {
-          providerOptions: getProviderOptions({
-            ...params,
-            providerOptions: originalProviderOptions,
-            agentProviderOptions: params.agentProviderOptions,
-          }),
-        }),
+    allowSystemInMessages: true,
+    include: {
+      ...streamParams.include,
+      requestBody: true,
+    },
+    providerOptions: getProviderOptions({
+      ...params,
+      providerOptions: originalProviderOptions,
+      agentProviderOptions: params.agentProviderOptions,
+    }),
     // Handle tool call errors gracefully by passing them through to our validation layer
     // instead of throwing (which would halt the agent). The only special case is when
     // the tool name matches a spawnable agent - transform those to spawn_agents calls.
@@ -463,12 +475,117 @@ export async function* promptAiSdkStream(
     },
   })
 
+  let usageReported = false
+  let usageIncompleteReported = false
+  const reportUsageIncomplete = () => {
+    if (usageReported || usageIncompleteReported) return
+    usageIncompleteReported = true
+    params.onUsageIncomplete?.()
+  }
+  const reportUsage = (usage: {
+    inputTokens?: number
+    outputTokens?: number
+    totalTokens?: number
+    inputTokenDetails?: {
+      cacheReadTokens?: number
+    }
+    outputTokenDetails?: {
+      reasoningTokens?: number
+    }
+  }) => {
+    if (usageReported || usageIncompleteReported) return
+    usageReported = true
+    emitCacheDebugUsage({
+      callback: params.onCacheDebugUsageReceived,
+      usage,
+    })
+    emitCacheDebugUsage({
+      callback: params.onUsageReceived,
+      usage,
+    })
+  }
+
+  let costReported = false
+  let finishProviderMetadata: ProviderMetadata | undefined
+  const reportCost = async (providerMetadata: ProviderMetadata | undefined) => {
+    if (isChatGptOAuth || costReported) return
+    const openrouterUsage = providerMetadata?.codebuff?.usage as
+      OpenRouterUsageAccounting | undefined
+    const costOverrideDollars = openrouterUsage
+      ? (openrouterUsage.cost ?? 0) +
+        (openrouterUsage.costDetails?.upstreamInferenceCost ?? 0)
+      : undefined
+    if (!params.onCostCalculated || !costOverrideDollars) return
+    costReported = true
+    await params.onCostCalculated(
+      calculateUsedCredits({ costDollars: costOverrideDollars }),
+    )
+  }
+
   const stopSequenceHandler = new StopSequenceHandler(params.stopSequences)
 
   // Track if we've yielded any content - if so, we can't safely fall back
   let hasYieldedContent = false
+  // Native reasoning is not visible answer content, but it distinguishes a
+  // silent model stop from a legitimate empty completion.
+  let hasReceivedReasoning = false
+  // Tool calls tracked separately: a step that produced tool calls is
+  // actionable even with no text, so it is never a silent stop.
+  let hasYieldedToolCall = false
 
-  for await (const chunkValue of response.fullStream) {
+  // A healthy stream always delivers a finish part with a real finishReason
+  // (and usage) before ending; its absence after the loop means the
+  // connection was cut mid-response. See stream-interruption.ts.
+  let finishInfo: StreamFinishInfo | undefined
+  // Bun/undici can throw when a response body is severed instead of ending the
+  // iterator cleanly. Feed that through the same capped continuation path as a
+  // clean end without a finish marker.
+  let thrownStreamRecovery: StreamEndRecovery | undefined
+  const streamIterator = response.stream[Symbol.asyncIterator]()
+  const recoverThrownStream = (error: unknown): StreamEndRecovery | null => {
+    const recovery = classifyThrownStreamRecovery({
+      aborted: params.signal.aborted,
+      error,
+    })
+    if (!recovery) return null
+    // These final-result promises can reject with the same transport error.
+    // Observe them now so the recovery yield below cannot leave an unhandled
+    // rejection while the consumer starts the continuation step.
+    void Promise.allSettled([
+      response.response,
+      response.request,
+      response.usage,
+      response.providerMetadata,
+    ])
+    return recovery
+  }
+
+  while (true) {
+    let iteration: Awaited<ReturnType<typeof streamIterator.next>>
+    try {
+      iteration = await streamIterator.next()
+    } catch (error) {
+      if (params.signal.aborted) reportUsageIncomplete()
+      const recovery = recoverThrownStream(error)
+      if (!recovery) throw error
+      thrownStreamRecovery = recovery
+      break
+    }
+    if (iteration.done) break
+    const chunkValue = iteration.value
+    if (chunkValue.type === 'finish-step') {
+      finishProviderMetadata = chunkValue.providerMetadata as
+        ProviderMetadata | undefined
+    }
+    if (chunkValue.type === 'finish') {
+      finishInfo = streamFinishInfoOf(
+        chunkValue,
+        typeof aiSDKModel !== 'string' &&
+          aiSDKModel.specificationVersion === 'v2',
+      )
+      if (finishInfo.hasUsage) reportUsage(chunkValue.totalUsage)
+      await reportCost(finishProviderMetadata)
+    }
     if (chunkValue.type !== 'text-delta') {
       const flushed = stopSequenceHandler.flush()
       if (flushed) {
@@ -481,8 +598,10 @@ export async function* promptAiSdkStream(
       }
     }
     if (chunkValue.type === 'error') {
-      // Error chunks from fullStream are non-network errors (tool failures, model issues, rate limits, etc.)
-      // Network errors which cannot be recovered from are thrown, not yielded as chunks.
+      if (params.signal.aborted) reportUsageIncomplete()
+      // Error chunks are usually model/tool/API failures. Some runtimes surface
+      // a response-body transport drop here instead of rejecting iterator.next;
+      // the final branch below recognizes that one recoverable exception.
 
       const errorBody = APICallError.isInstance(chunkValue.error)
         ? chunkValue.error.responseBody
@@ -521,7 +640,8 @@ export async function* promptAiSdkStream(
       const chatGptErrorPolicy = classifyChatGptOAuthStreamError({
         isChatGptOAuth,
         skipChatGptOAuth: params.skipChatGptOAuth,
-        hasYieldedContent,
+        hasYieldedContent:
+          hasYieldedContent || hasYieldedToolCall || hasReceivedReasoning,
         error: chunkValue.error,
       })
 
@@ -547,7 +667,7 @@ export async function* promptAiSdkStream(
 
         markChatGptOAuthRateLimited()
 
-        // In free mode, don't fall back to Codebuff backend — fail instead
+        // In free mode, don't fall back to Codebuff backend â€” fail instead
         if (isFreeMode(params.costMode)) {
           throw new Error(
             `ChatGPT rate limit reached. Please wait a few minutes and try again. (${rateLimitErrorDetails})`,
@@ -598,7 +718,7 @@ export async function* promptAiSdkStream(
         }
 
         // Refresh failed or already retried
-        // In free mode, don't fall back to Codebuff backend — fail instead
+        // In free mode, don't fall back to Codebuff backend â€” fail instead
         if (isFreeMode(params.costMode)) {
           throw new Error(
             'ChatGPT OAuth authentication failed. Please reconnect with /connect:chatgpt and try again.',
@@ -611,6 +731,14 @@ export async function* promptAiSdkStream(
           skipChatGptOAuth: true,
         })
         return fallbackResult
+      }
+
+      // A transport error can also arrive as an AI SDK error chunk instead of
+      // making iterator.next() reject. Recover both runtime shapes identically.
+      const recovery = recoverThrownStream(chunkValue.error)
+      if (recovery) {
+        thrownStreamRecovery = recovery
+        break
       }
 
       logger.error(
@@ -626,6 +754,9 @@ export async function* promptAiSdkStream(
       throw chunkValue.error
     }
     if (chunkValue.type === 'reasoning-delta') {
+      if (chunkValue.text) {
+        hasReceivedReasoning = true
+      }
       const reasoningExcluded = (['openrouter', 'codebuff'] as const).some(
         (p) =>
           (params.providerOptions?.[p] as OpenRouterProviderOptions | undefined)
@@ -635,6 +766,16 @@ export async function* promptAiSdkStream(
         yield {
           type: 'reasoning',
           text: chunkValue.text,
+        }
+      }
+    }
+    if (chunkValue.type === 'reasoning-end') {
+      if (chunkValue.providerMetadata) {
+        hasReceivedReasoning = true
+        yield {
+          type: 'reasoning',
+          text: '',
+          providerOptions: chunkValue.providerMetadata as ProviderMetadata,
         }
       }
     }
@@ -662,17 +803,73 @@ export async function* promptAiSdkStream(
       }
     }
     if (chunkValue.type === 'tool-call') {
+      hasYieldedToolCall = true
       yield chunkValue
     }
   }
   const flushed = stopSequenceHandler.flush()
   if (flushed) {
+    hasYieldedContent = true
     yield {
       type: 'text',
       text: flushed,
       ...(agentChunkMetadata ?? {}),
     }
   }
+
+  if (params.signal.aborted) reportUsageIncomplete()
+  if (thrownStreamRecovery && params.signal.aborted) {
+    return promptAborted('User cancelled input')
+  }
+  const recovery =
+    thrownStreamRecovery ??
+    classifyStreamEndRecovery({
+      aborted: params.signal.aborted,
+      finish: finishInfo,
+      receivedReasoning: hasReceivedReasoning,
+      yieldedText: hasYieldedContent,
+      yieldedToolCall: hasYieldedToolCall,
+    })
+  if (recovery) {
+    reportUsageIncomplete()
+    // The stream ended in a recoverable silent stop (connection cut, or
+    // reasoning ended without an answer). Yield an error chunk instead of
+    // ending like a normal completion: the agent loop appends the note to
+    // the conversation and forces another step (with a consecutive cap), so
+    // the model continues rather than the turn silently stopping.
+    logger.warn(
+      {
+        // axiomEvent bypasses the CLI's default redaction of non-error log
+        // payloads (see common/src/util/axiom-only-log.ts) â€” without it,
+        // `source`/`model`/etc. below would ship to Axiom as a
+        // {kind, keyCount, keys} shape summary instead of real values,
+        // since only error/fatal-level CLI logs ship raw data otherwise.
+        // Queryable via scripts/logs/stream-interruptions.ts â€” one event per
+        // detection. Outcomes (rescued/gave_up) are emitted by the agent
+        // loop, which knows the consecutive streak.
+        axiomEvent: STREAM_RECOVERY_EVENT,
+        metric: 'stream_recovery_detected',
+        source: recovery.source,
+        model: params.model,
+        userId: params.userId,
+        userInputId: params.userInputId,
+        finishReason: finishInfo?.finishReason,
+        hasYieldedContent,
+        hasReceivedReasoning,
+      },
+      'Completion stream ended without a usable response; forcing a retry step',
+    )
+    yield {
+      type: 'error',
+      source: recovery.source,
+      message: recovery.message,
+    }
+  }
+
+  // A thrown response body has no reliable final metadata to collect. The
+  // recovery chunk above preserves partial output and forces a fresh agent
+  // step, which continues from that saved context.
+  if (thrownStreamRecovery) return promptSuccess(null)
 
   const responseValue = await response.response
   const messageId = responseValue.id
@@ -685,35 +882,11 @@ export async function* promptAiSdkStream(
   })
 
   const usageResult = await response.usage
-  emitCacheDebugUsage({
-    callback: params.onCacheDebugUsageReceived,
-    usage: usageResult,
-  })
+  if (finishInfo?.hasUsage) reportUsage(usageResult)
+  else reportUsageIncomplete()
 
-  // Skip cost tracking for ChatGPT OAuth (user is on their own subscription)
-  if (!isChatGptOAuth) {
-    const providerMetadataResult = await response.providerMetadata
-    const providerMetadata = providerMetadataResult ?? {}
-
-    let costOverrideDollars: number | undefined
-    if (providerMetadata.codebuff) {
-      if (providerMetadata.codebuff.usage) {
-        const openrouterUsage = providerMetadata.codebuff
-          .usage as OpenRouterUsageAccounting
-
-        costOverrideDollars =
-          (openrouterUsage.cost ?? 0) +
-          (openrouterUsage.costDetails?.upstreamInferenceCost ?? 0)
-      }
-    }
-
-    // Call the cost callback if provided
-    if (params.onCostCalculated && costOverrideDollars) {
-      await params.onCostCalculated(
-        calculateUsedCredits({ costDollars: costOverrideDollars }),
-      )
-    }
-  }
+  const providerMetadata = (await response.providerMetadata) ?? {}
+  await reportCost(providerMetadata as ProviderMetadata)
 
   return promptSuccess(messageId)
 }
@@ -734,19 +907,24 @@ export async function promptAiSdk(
     return promptAborted('User cancelled input')
   }
 
-  const modelParams: ModelRequestParams = {
+  const { model: aiSDKModel } = await getModelForRequest({
     apiKey: params.apiKey,
     model: params.model,
-    skipChatGptOAuth: true, // Always use Codebuff backend for non-streaming
+    userId: params.userId,
     agentId: params.agentId,
-  }
-  const { model: aiSDKModel } = await getModelForRequest(modelParams)
+    skipChatGptOAuth: true, // Path C still takes precedence for non-streaming.
+  })
 
   const response = await generateText({
     ...params,
     prompt: undefined,
     model: aiSDKModel,
     messages: convertCbToModelMessages(params),
+    allowSystemInMessages: true,
+    include: {
+      ...params.include,
+      requestBody: true,
+    },
     providerOptions: getProviderOptions({
       ...params,
       agentProviderOptions: params.agentProviderOptions,
@@ -802,20 +980,22 @@ export async function promptAiSdkStructured<T>(
     )
     return promptAborted('User cancelled input')
   }
-  const modelParams: ModelRequestParams = {
+  const { model: aiSDKModel } = await getModelForRequest({
     apiKey: params.apiKey,
     model: params.model,
-    skipChatGptOAuth: true, // Always use Codebuff backend for non-streaming
+    userId: params.userId,
     agentId: params.agentId,
-  }
-  const { model: aiSDKModel } = await getModelForRequest(modelParams)
+    skipChatGptOAuth: true, // Path C still takes precedence for non-streaming.
+  })
 
-  const response = await generateObject<z.ZodType<T>, 'object'>({
+  const response = await generateText({
     ...params,
     prompt: undefined,
     model: aiSDKModel,
-    output: 'object',
+    output: Output.object({ schema: params.schema }),
     messages: convertCbToModelMessages(params),
+    allowSystemInMessages: true,
+    include: { requestBody: true },
     providerOptions: getProviderOptions({
       ...params,
       agentProviderOptions: params.agentProviderOptions,
@@ -833,7 +1013,7 @@ export async function promptAiSdkStructured<T>(
     usage: response.usage,
   })
 
-  const content = response.object
+  const content = response.output
 
   const providerMetadata = response.providerMetadata ?? {}
   let costOverrideDollars: number | undefined

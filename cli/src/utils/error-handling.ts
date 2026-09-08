@@ -1,10 +1,17 @@
+import {
+  FREEBUFF_PROVIDER_USAGE_ERROR_PATTERN,
+  FREEBUFF_TURN_SPEND_LIMIT_ERROR_CODE,
+  FREEBUFF_TURN_SPEND_LIMIT_MESSAGE,
+} from '@codebuff/common/constants/freebuff-errors'
 import { env } from '@codebuff/common/env'
 import { extractApiErrorDetails } from '@codebuff/common/util/error'
 import { formatFreebuffHardBlockedPrivacySignals } from '@codebuff/common/util/freebuff-privacy'
+import { getFreebuffGateCode } from '@codebuff/common/types/freebuff-session'
 
 import type { ChatMessage } from '../types/chat'
 import type {
   FreebuffCountryBlockReason,
+  FreebuffGateCode,
   FreebuffIpPrivacySignal,
 } from '@codebuff/common/types/freebuff-session'
 
@@ -125,6 +132,11 @@ export const getFreebuffRateLimitErrorMessage = (
     // retry countdown — show it verbatim.
     return details.message ?? FREEBUFF_RATE_LIMIT_MESSAGE
   }
+  if (details.errorCode === FREEBUFF_TURN_SPEND_LIMIT_ERROR_CODE) {
+    // The per-turn spend breaker. Its copy already says what happened and
+    // what to do (send a new message); a rate-limit framing would be wrong.
+    return details.message ?? FREEBUFF_TURN_SPEND_LIMIT_MESSAGE
+  }
   // Other 429s (e.g. relayed upstream capacity errors) keep the branded
   // message but include the server detail so users aren't left guessing.
   // Only trust messages parsed from a server response body, or the curated
@@ -141,6 +153,21 @@ export const getFreebuffRateLimitErrorMessage = (
     return `${FREEBUFF_RATE_LIMIT_MESSAGE} (${detail})`
   }
   return FREEBUFF_RATE_LIMIT_MESSAGE
+}
+
+/**
+ * Provider billing failures are an operator problem in Freebuff, not a reason
+ * to send a free user to Codebuff's credit-purchase flow. Upstreams disagree
+ * on the status (observed as both 401 and 402), so retain the status check but
+ * also recognize the provider wording that can survive into an agent output.
+ */
+export const isFreebuffProviderUsageError = (error: unknown): boolean => {
+  const details = getCliApiErrorDetails(error)
+  const message = details.message ?? extractErrorMessage(error, '')
+  return (
+    details.statusCode === 402 ||
+    FREEBUFF_PROVIDER_USAGE_ERROR_PATTERN.test(message)
+  )
 }
 
 export const getCountryBlockFromFreeModeError = (
@@ -184,40 +211,33 @@ export const getFreeModeUnavailableErrorMessage = (
 }
 
 /**
- * Freebuff waiting-room gate errors returned by /api/v1/chat/completions.
+ * The subset of the session gate the CLI has a recovery for. The codes and
+ * their statuses come from FREEBUFF_GATE_CODES (the shared wire contract, see
+ * docs/freebuff-session-admission.md); the narrowing is deliberate —
+ * `session_limit_reached` is the Desktop concurrent-tab cap, and the CLI runs
+ * one session per user, so it can never earn it and has no banner for it.
  *
- * Contract (see docs/freebuff-waiting-room.md):
- *   - 428 `waiting_room_required`   — no session row exists; POST /session to join.
- *   - 429 `waiting_room_queued`     — row exists but still queued.
- *   - 409 `session_superseded`      — another CLI rotated our instance id.
- *   - 409 `session_model_mismatch`  — session tier/model no longer matches.
- *   - 410 `session_expired`         — active session's expires_at has passed.
+ * The names keep their legacy waiting-room spelling for wire compatibility.
  */
-export type FreebuffGateErrorKind =
-  | 'waiting_room_required'
-  | 'waiting_room_queued'
-  | 'session_superseded'
-  | 'session_model_mismatch'
-  | 'session_expired'
-
-const FREEBUFF_GATE_STATUS: Record<FreebuffGateErrorKind, number> = {
-  waiting_room_required: 428,
-  waiting_room_queued: 429,
-  session_superseded: 409,
-  session_model_mismatch: 409,
-  session_expired: 410,
-}
+export type FreebuffGateErrorKind = Exclude<
+  FreebuffGateCode,
+  'session_limit_reached'
+>
 
 export const getFreebuffGateErrorKind = (
   error: unknown,
 ): FreebuffGateErrorKind | null => {
   if (!error || typeof error !== 'object') return null
-  const errorCode = (error as { error?: unknown }).error
-  const statusCode = (error as { statusCode?: unknown }).statusCode
+  const { error: errorCode, statusCode } = error as {
+    error?: unknown
+    statusCode?: unknown
+  }
   if (typeof errorCode !== 'string') return null
-  const expected = FREEBUFF_GATE_STATUS[errorCode as FreebuffGateErrorKind]
-  if (expected === undefined || statusCode !== expected) return null
-  return errorCode as FreebuffGateErrorKind
+  const code = getFreebuffGateCode({
+    error: errorCode,
+    statusCode: typeof statusCode === 'number' ? statusCode : undefined,
+  })
+  return code && code !== 'session_limit_reached' ? code : null
 }
 
 export const OUT_OF_CREDITS_MESSAGE = `Out of credits. Please add credits at ${defaultAppUrl}/usage`

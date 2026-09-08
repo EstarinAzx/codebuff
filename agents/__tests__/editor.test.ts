@@ -1,5 +1,6 @@
 import { describe, test, expect } from 'bun:test'
 
+import { OPUS_MODEL } from '../constants'
 import editor, { createCodeEditor } from '../editor/editor'
 
 import type { AgentState, ToolCall } from '../types/agent-definition'
@@ -26,7 +27,7 @@ describe('editor agent', () => {
     })
 
     test('uses opus model by default', () => {
-      expect(editor.model).toBe('anthropic/claude-opus-4.8')
+      expect(editor.model).toBe(OPUS_MODEL)
     })
 
     test('has output mode set to structured_output', () => {
@@ -52,7 +53,7 @@ describe('editor agent', () => {
   describe('createCodeEditor', () => {
     test('creates opus editor by default', () => {
       const opusEditor = createCodeEditor({ model: 'opus' })
-      expect(opusEditor.model).toBe('anthropic/claude-opus-4.8')
+      expect(opusEditor.model).toBe(OPUS_MODEL)
     })
 
     test('creates gpt-5 editor', () => {
@@ -77,7 +78,7 @@ describe('editor agent', () => {
 
     test('creates minimax editor', () => {
       const minimaxEditor = createCodeEditor({ model: 'minimax' })
-      expect(minimaxEditor.model).toBe('minimax/minimax-m2.7')
+      expect(minimaxEditor.model).toBe('minimax/minimax-m3')
     })
 
     test('gpt-5 editor does not include think tags in instructions', () => {

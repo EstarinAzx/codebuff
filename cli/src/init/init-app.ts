@@ -5,7 +5,6 @@ import {
   setActiveByokProfile,
   setByokAgentBindings,
 } from '@codebuff/sdk'
-import { enableMapSet } from 'immer'
 
 import { initializeThemeStore } from '../hooks/use-theme'
 import { setProjectRoot } from '../project-files'
@@ -34,7 +33,6 @@ export async function initializeApp(params: { cwd?: string }): Promise<void> {
   // Initialize direnv environment before anything else
   initializeDirenv()
 
-  enableMapSet()
   initializeThemeStore()
   enableManualThemeRefresh()
   initTimestampFormatter()

@@ -34,6 +34,7 @@ import type { StreamStatus } from '../hooks/use-message-queue'
 import type { ContentBlock, ToolContentBlock } from '../types/chat'
 import type { Logger } from '@codebuff/common/types/contracts/logger'
 import type {
+  PrintModeError,
   PrintModeEvent as SDKEvent,
   PrintModeFinish,
   PrintModeSubagentFinish,
@@ -88,6 +89,8 @@ export type ModeState = {
 }
 
 export type EventHandlerState = {
+  /** Reject late SDK callbacks after this run loses chat ownership. */
+  isActive?: () => boolean
   streaming: StreamingState
   message: MessageState
   subagents: SubagentState
@@ -114,7 +117,6 @@ const ensureStreaming = (state: EventHandlerState) => {
   if (!state.message.hasReceivedContentRef.current) {
     state.message.hasReceivedContentRef.current = true
     state.streaming.setStreamStatus('streaming')
-    state.setIsRetrying(false)
   }
 }
 
@@ -263,7 +265,14 @@ const handleSpawnAgentsToolCall = (
 ) => {
   const agents = Array.isArray(event.input?.agents) ? event.input?.agents : []
 
-  agents.forEach((agent: any, index: number) => {
+  // Hidden agents get no block, so give them no spawn info or streaming id
+  // either — an id with no block would linger until the tool result clears it.
+  // Indices stay the original array positions so results still line up.
+  const visibleAgents = agents
+    .map((agent: any, index: number) => ({ agent, index }))
+    .filter(({ agent }: any) => !shouldHideAgent(agent?.agent_type || ''))
+
+  visibleAgents.forEach(({ agent, index }: any) => {
     const tempAgentId = `${event.toolCallId}-${index}`
     state.streaming.streamRefs.setters.setSpawnAgentInfo(tempAgentId, {
       index,
@@ -277,25 +286,23 @@ const handleSpawnAgentsToolCall = (
       ? findAgentTypeById(blocks, event.agentId)
       : undefined
 
-    const newAgentBlocks: ContentBlock[] = agents
-      .map((agent: any, originalIndex: number) => ({ agent, originalIndex }))
-      .filter(({ agent }) => !shouldHideAgent(agent.agent_type || ''))
-      .map(({ agent, originalIndex }) =>
+    const newAgentBlocks: ContentBlock[] = visibleAgents.map(
+      ({ agent, index }: any) =>
         createAgentBlock({
-          agentId: `${event.toolCallId}-${originalIndex}`,
+          agentId: `${event.toolCallId}-${index}`,
           agentType: agent.agent_type || '',
           prompt: agent.prompt,
           params: agent.params,
           spawnToolCallId: event.toolCallId,
-          spawnIndex: originalIndex,
+          spawnIndex: index,
           parentAgentType,
         }),
-      )
+    )
 
     return [...blocks, ...newAgentBlocks]
   })
 
-  agents.forEach((_: any, index: number) => {
+  visibleAgents.forEach(({ index }: any) => {
     updateStreamingAgents(state, { add: `${event.toolCallId}-${index}` })
   })
 }
@@ -489,8 +496,23 @@ const handleFinish = (state: EventHandlerState, event: PrintModeFinish) => {
   }
 }
 
+const handleStreamError = (state: EventHandlerState, event: PrintModeError) => {
+  if (!event.source) {
+    // Sourceless error chunks already surface to the model as inline
+    // tool-error messages; the UI intentionally stays quiet about them.
+    return
+  }
+  // A `source` means an auto-recovered stream ending (connection cut, or
+  // output budget burned on reasoning): the agent loop is taking another
+  // step to continue. Show the transient retrying status; the next content
+  // chunk (or run completion) clears it.
+  state.logger.warn({ event }, 'Stream recovery; agent loop is retrying')
+  state.setIsRetrying(true)
+}
+
 export const createStreamChunkHandler =
   (state: EventHandlerState) => (event: StreamChunkEvent) => {
+    if (state.isActive?.() === false) return
     const destination = destinationFromChunkEvent(event)
     let text: string | undefined
     if (typeof event === 'string') {
@@ -509,6 +531,11 @@ export const createStreamChunkHandler =
     }
 
     ensureStreaming(state)
+    // Content is flowing (again) — clear any stream-interrupted retry status.
+    // Terminal paths (run completion, error, abort) already reset it in
+    // use-send-message/send-message, so the indicator can't outlive its run.
+    // (No-op when already false: the immer store returns the same state.)
+    state.setIsRetrying(false)
 
     if (destination.type === 'root') {
       if (destination.textType === 'text') {
@@ -526,11 +553,19 @@ export const createStreamChunkHandler =
 
 export const createEventHandler =
   (state: EventHandlerState) => (event: SDKEvent) => {
+    // A cancelled run may still report its final billed cost. Keep that
+    // accounting event, but reject every callback that could mutate the chat
+    // or shared streaming UI after ownership has moved to another run.
+    if (state.isActive?.() === false) {
+      if (event.type === 'finish') handleFinish(state, event)
+      return
+    }
     return match(event)
       .with({ type: 'subagent_start' }, (e) => handleSubagentStart(state, e))
       .with({ type: 'subagent_finish' }, (e) => handleSubagentFinish(state, e))
       .with({ type: 'tool_call' }, (e) => handleToolCall(state, e))
       .with({ type: 'tool_result' }, (e) => handleToolResult(state, e))
       .with({ type: 'finish' }, (e) => handleFinish(state, e))
+      .with({ type: 'error' }, (e) => handleStreamError(state, e))
       .otherwise(() => undefined)
   }

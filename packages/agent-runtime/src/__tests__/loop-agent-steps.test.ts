@@ -1,4 +1,5 @@
 import * as analytics from '@codebuff/common/analytics'
+import { FREEBUFF_TURN_SPEND_LIMIT_MESSAGE } from '@codebuff/common/constants/freebuff-errors'
 import { TEST_USER_ID } from '@codebuff/common/old-constants'
 import { createTestAgentRuntimeParams } from '@codebuff/common/testing/fixtures/agent-runtime'
 import { clearMockedModules } from '@codebuff/common/testing/mock-modules'
@@ -25,6 +26,13 @@ import { z } from 'zod/v4'
 
 import { loopAgentSteps } from '../run-agent-step'
 import { clearAgentGeneratorCache } from '../run-programmatic-step'
+import {
+  MAX_CONSECUTIVE_STREAM_RECOVERIES,
+  OUTPUT_LIMIT_TAG,
+  REPEATED_OUTPUT_LIMIT_MESSAGE,
+  REPEATED_STREAM_INTERRUPTIONS_MESSAGE,
+  STREAM_INTERRUPTED_TAG,
+} from '../tools/stream-parser'
 import { createToolCallChunk, mockFileContext } from './test-utils'
 
 import type { AgentTemplate } from '../templates/types'
@@ -148,6 +156,76 @@ describe('loopAgentSteps - runAgentStep vs runProgrammaticStep behavior', () => 
 
   afterAll(() => {
     clearMockedModules()
+  })
+
+  it('retains completed steps after a spending cap and resumes under a new run id', async () => {
+    mockTemplate.handleSteps = function* () {
+      yield 'STEP'
+      yield 'STEP'
+    }
+    let calls = 0
+    const capped = await loopAgentSteps({
+      ...loopAgentStepsBaseParams,
+      startAgentRun: async () => 'capped-run',
+      promptAiSdkStream: async function* () {
+        if (++calls === 2) {
+          throw new APICallError({
+            statusCode: 429,
+            message: FREEBUFF_TURN_SPEND_LIMIT_MESSAGE,
+            url: 'http://localhost/api/v1/chat/completions',
+            requestBodyValues: {},
+            responseBody: JSON.stringify({
+              error: 'turn_spend_limit',
+              message: FREEBUFF_TURN_SPEND_LIMIT_MESSAGE,
+            }),
+            isRetryable: false,
+          })
+        }
+        yield { type: 'text' as const, text: 'Completed research: result 42.' }
+        yield createToolCallChunk('end_turn', {})
+        return promptSuccess('completed-step')
+      },
+    })
+    expect(calls).toBe(2)
+    expect(capped.output).toMatchObject({
+      type: 'error',
+      error: 'turn_spend_limit',
+    })
+    expect(JSON.stringify(capped.agentState.messageHistory)).toContain(
+      'Completed research: result 42.',
+    )
+    expect(capped.agentState.runId).toBe('capped-run')
+
+    const resumed = await loopAgentSteps({
+      ...loopAgentStepsBaseParams,
+      agentState: capped.agentState,
+      prompt: 'Continue',
+      startAgentRun: async () => 'fresh-run',
+    })
+    expect(resumed.output.type).not.toBe('error')
+    expect(resumed.agentState.runId).toBe('fresh-run')
+    const history = JSON.stringify(resumed.agentState.messageHistory)
+    expect(history).toContain('Completed research: result 42.')
+    expect(history).toContain('Continue')
+  })
+
+  it('an abort during agent-run registration is a cancel, not a failed run', async () => {
+    // registration ends on the run's signal now, so the null it returns under an abort is the
+    // abort itself and must read like every other cancel
+    const controller = new AbortController()
+    const result = await loopAgentSteps({
+      ...loopAgentStepsBaseParams,
+      signal: controller.signal,
+      startAgentRun: async () => {
+        controller.abort()
+        return null
+      },
+    })
+    expect(result.output).toEqual({
+      type: 'error',
+      message: 'Run cancelled by user',
+    })
+    expect(llmCallCount).toBe(0)
   })
 
   it('should verify correct STEP behavior - LLM called once after STEP', async () => {
@@ -556,10 +634,14 @@ describe('loopAgentSteps - runAgentStep vs runProgrammaticStep behavior', () => 
     }
 
     let llmCallNumber = 0
+    const llmStepNumbers: string[] = []
     let capturedAgentState: AgentState | null = null
 
-    loopAgentStepsBaseParams.promptAiSdkStream = async function* ({}) {
+    loopAgentStepsBaseParams.promptAiSdkStream = async function* ({
+      extraCodebuffMetadata,
+    }) {
       llmCallNumber++
+      llmStepNumbers.push(extraCodebuffMetadata?.llm_step_number ?? '')
       if (llmCallNumber === 1) {
         // First call: agent tries to end turn without setting output
         yield {
@@ -602,6 +684,7 @@ describe('loopAgentSteps - runAgentStep vs runProgrammaticStep behavior', () => 
 
     // Should call LLM twice: once to try ending without output, once after reminder
     expect(llmCallNumber).toBe(2)
+    expect(llmStepNumbers).toEqual(['1', '2'])
 
     // Should have output set after the second attempt
     expect(result.agentState.output).toEqual({
@@ -1136,6 +1219,42 @@ describe('loopAgentSteps - runAgentStep vs runProgrammaticStep behavior', () => 
         expect(result.output.message).not.toBe('The operation timed out.')
       }
     })
+
+    it('should explain dropped socket connections instead of showing the raw runtime message', async () => {
+      const llmOnlyTemplate = {
+        ...mockTemplate,
+        handleSteps: undefined,
+      }
+
+      const localAgentTemplates = {
+        'test-agent': llmOnlyTemplate,
+      }
+
+      // Bun's fetch throws a plain Error with this message (and code
+      // ECONNRESET/ConnectionClosed) when the TCP connection is dropped.
+      loopAgentStepsBaseParams.promptAiSdkStream = async function* () {
+        const socketError = new Error(
+          'The socket connection was closed unexpectedly. For more information, pass `verbose: true` in the second argument to fetch()',
+        ) as Error & { code: string }
+        socketError.code = 'ECONNRESET'
+        throw socketError
+      }
+
+      const result = await loopAgentSteps({
+        ...loopAgentStepsBaseParams,
+        agentType: 'test-agent',
+        localAgentTemplates,
+      })
+
+      expect(result.output.type).toBe('error')
+      if (result.output.type === 'error') {
+        expect(result.output.message).toContain('Connection interrupted')
+        expect(result.output.message).not.toContain('Agent run error:')
+        expect(result.output.message).not.toContain(
+          'pass `verbose: true` in the second argument to fetch()',
+        )
+      }
+    })
   })
 
   describe('steering (drainSteeringMessages)', () => {
@@ -1178,6 +1297,171 @@ describe('loopAgentSteps - runAgentStep vs runProgrammaticStep behavior', () => 
       // No steer → the agent ends the turn after its single step, as usual.
       expect(llmCallCount).toBe(1)
       expect(result.agentState).toBeDefined()
+    })
+  })
+
+  describe('stream interruptions', () => {
+    it('retries after a stream interruption and completes the turn', async () => {
+      let callCount = 0
+      loopAgentStepsBaseParams.promptAiSdkStream = async function* () {
+        callCount++
+        if (callCount === 1) {
+          // A stream cut mid-response: partial text, then the interruption
+          // chunk promptAiSdkStream yields when no finish marker arrived.
+          yield { type: 'text' as const, text: 'partial answer that got cut ' }
+          yield {
+            type: 'error' as const,
+            source: 'stream-interrupted' as const,
+            message: 'The connection dropped while the response was streaming.',
+          }
+          return promptSuccess('interrupted-message-id')
+        }
+        yield { type: 'text' as const, text: 'complete answer' }
+        yield createToolCallChunk('end_turn', {})
+        return promptSuccess('complete-message-id')
+      }
+
+      const result = await loopAgentSteps(loopAgentStepsBaseParams)
+
+      // The interruption forced a second step (the retry), which completed.
+      expect(callCount).toBe(2)
+      expect(result.output?.type).not.toBe('error')
+
+      const notes = result.agentState.messageHistory.filter(
+        (m) => m.role === 'user' && m.tags?.includes(STREAM_INTERRUPTED_TAG),
+      )
+      expect(notes).toHaveLength(1)
+    })
+
+    it('gives up with a clear error when every attempt is interrupted', async () => {
+      let callCount = 0
+      loopAgentStepsBaseParams.promptAiSdkStream = async function* () {
+        callCount++
+        yield {
+          type: 'error' as const,
+          source: 'stream-interrupted' as const,
+          message: 'The connection dropped while the response was streaming.',
+        }
+        return promptSuccess(`interrupted-${callCount}`)
+      }
+
+      const result = await loopAgentSteps(loopAgentStepsBaseParams)
+
+      expect(result.output?.type).toBe('error')
+      expect((result.output as { message?: string }).message).toContain(
+        REPEATED_STREAM_INTERRUPTIONS_MESSAGE,
+      )
+      // The retried interruptions, plus the final attempt that trips the cap
+      // instead of retrying forever (well under maxAgentSteps).
+      expect(callCount).toBe(MAX_CONSECUTIVE_STREAM_RECOVERIES + 1)
+    })
+
+    it('retries after an output-limit thinking overrun and completes the turn', async () => {
+      let callCount = 0
+      loopAgentStepsBaseParams.promptAiSdkStream = async function* () {
+        callCount++
+        if (callCount === 1) {
+          // The model burned its output budget on reasoning: only reasoning
+          // chunks, then the output-limit chunk promptAiSdkStream yields for
+          // a 'length' finish with no content or tool calls.
+          yield { type: 'reasoning' as const, text: 'thinking forever ' }
+          yield {
+            type: 'error' as const,
+            source: 'output-limit' as const,
+            message: 'The response hit its output token limit while reasoning.',
+          }
+          return promptSuccess('limited-message-id')
+        }
+        yield { type: 'text' as const, text: 'concise answer' }
+        yield createToolCallChunk('end_turn', {})
+        return promptSuccess('complete-message-id')
+      }
+
+      const result = await loopAgentSteps(loopAgentStepsBaseParams)
+
+      expect(callCount).toBe(2)
+      expect(result.output?.type).not.toBe('error')
+
+      const notes = result.agentState.messageHistory.filter(
+        (m) => m.role === 'user' && m.tags?.includes(OUTPUT_LIMIT_TAG),
+      )
+      expect(notes).toHaveLength(1)
+    })
+
+    it('gives up with the output-limit message when every attempt overruns', async () => {
+      let callCount = 0
+      loopAgentStepsBaseParams.promptAiSdkStream = async function* () {
+        callCount++
+        yield {
+          type: 'error' as const,
+          source: 'output-limit' as const,
+          message: 'The response hit its output token limit while reasoning.',
+        }
+        return promptSuccess(`limited-${callCount}`)
+      }
+
+      const result = await loopAgentSteps(loopAgentStepsBaseParams)
+
+      expect(result.output?.type).toBe('error')
+      expect((result.output as { message?: string }).message).toContain(
+        REPEATED_OUTPUT_LIMIT_MESSAGE,
+      )
+      expect(callCount).toBe(MAX_CONSECUTIVE_STREAM_RECOVERIES + 1)
+    })
+  })
+
+  describe('the end-of-turn context recount', () => {
+    // The cancel exit is where the recount earns its keep, and it is also the
+    // only exit where the two behaviours are far apart enough to assert
+    // cleanly. A turn that ends normally re-enters the loop once and re-runs
+    // the in-loop estimate before breaking, so that estimate already covers the
+    // answer; a turn that is cancelled leaves the loop from inside the step,
+    // and the last estimate it took predates everything the model produced.
+    const BIG_PARTIAL_ANSWER = 'here is what I found so far. '.repeat(2000)
+
+    const contextTokensAfterCancelledTurn = async (agentState: AgentState) => {
+      const result = await loopAgentSteps({
+        ...loopAgentStepsBaseParams,
+        agentState,
+        promptAiSdkStream: async function* () {
+          yield { type: 'text' as const, text: BIG_PARTIAL_ANSWER }
+          throw new AbortError('User pressed Ctrl+C')
+        },
+      })
+      return result.agentState.contextTokenCount
+    }
+
+    const withHistory = (extra?: Partial<AgentState>): AgentState => ({
+      ...mockAgentState,
+      messageHistory: [...mockAgentState.messageHistory],
+      contextTokenCount: 0,
+      ...extra,
+    })
+
+    it('leaves the root counting the history the turn actually kept', async () => {
+      // The host persists this number and shows it to the user between turns,
+      // so it has to describe the history the NEXT message is sent on top of —
+      // including the partial answer a cancelled turn preserves.
+      const asRoot = await contextTokensAfterCancelledTurn(withHistory())
+      expect(asRoot).toBeGreaterThan(10_000)
+    })
+
+    it('does not pay to recount a subagent nobody reads', async () => {
+      // Only the root's count leaves the runtime — the host reads
+      // sessionState.mainAgentState. Recounting here tokenizes a spawned
+      // agent's whole history (file-picker, thinker, context-pruner, …) for a
+      // value that is discarded with the agent, which on a one-step subagent
+      // roughly doubles its tokenizer cost.
+      //
+      // Same predicate as the compaction callback: parentId.
+      const asRoot = await contextTokensAfterCancelledTurn(withHistory())
+      const asSubagent = await contextTokensAfterCancelledTurn(
+        withHistory({ parentId: 'parent-agent-id' }),
+      )
+
+      // Not merely different: the subagent's number is the estimate taken
+      // before the model call, which predates everything the model produced.
+      expect(asRoot).toBeGreaterThan(asSubagent * 2)
     })
   })
 })

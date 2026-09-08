@@ -12,8 +12,10 @@ export const IS_FREEBUFF = getCliEnv().FREEBUFF_MODE === 'true'
 export const END_SESSION_MESSAGE =
   'Ending session and returning to the model picker…'
 
-// Agent IDs that should not be rendered in the CLI UI
-export const HIDDEN_AGENT_IDS = ['codebuff/context-pruner'] as const
+// Agent IDs that should not be rendered in the CLI UI. Matched as substrings
+// so both bundled ids ('context-pruner') and publisher-qualified ids
+// ('codebuff/context-pruner@1.0.0') are covered.
+export const HIDDEN_AGENT_IDS = ['context-pruner'] as const
 
 // Tool names that should be collapsed by default when rendered
 // Uses ToolName type to ensure only valid tool names are added
@@ -124,6 +126,28 @@ export const isMultiPromptEditor = (agentType: string): boolean => {
 export const MAIN_AGENT_ID = 'main-agent'
 
 /**
+ * Which harness the CLI's DEFAULT and LITE modes run.
+ *
+ * base3 runs Codebuff DEFAULT and LITE plus every Freebuff picker model. MAX
+ * and PLAN remain on their purpose-built base2 roots below.
+ *
+ * Unlike Web and Cloud, the CLI has no server-side base3 kill switch: changing
+ * this routing after release requires another CLI release. The earlier Flash
+ * benchmark and rollback rationale remain documented in
+ * docs/freebuff-base3-harness.md so future harness changes preserve that
+ * context.
+ */
+export const CLI_HARNESS: 'base2' | 'base3' = 'base3'
+
+/** The only two modes that follow CLI_HARNESS. MAX and PLAN never moved, so
+ *  they are not in here — listing them per harness would invite editing one row
+ *  and not the other. */
+const HARNESS_MODE_IDS = {
+  base2: { DEFAULT: 'base2', LITE: 'base2-lite' },
+  base3: { DEFAULT: 'base3', LITE: 'base3-lite' },
+} as const
+
+/**
  * Mapping from agent mode to agent ID.
  * Single source of truth for all agent modes (order = cycling order).
  *
@@ -135,7 +159,7 @@ export const MAIN_AGENT_ID = 'main-agent'
  * this fallback stays on base2-free for non-runtime freebuff callers.
  */
 export const AGENT_MODE_TO_ID = {
-  DEFAULT: IS_FREEBUFF ? 'base2' : 'mod-default',
+  DEFAULT: IS_FREEBUFF ? HARNESS_MODE_IDS[CLI_HARNESS].DEFAULT : 'mod-default',
   LITE: IS_FREEBUFF ? 'base2-free' : 'mod-lite',
   MAX: IS_FREEBUFF ? 'base2-max' : 'mod-max',
   PLAN: IS_FREEBUFF ? 'base2-plan' : 'mod-plan',
@@ -147,9 +171,9 @@ export const AGENT_MODES = Object.keys(AGENT_MODE_TO_ID) as AgentMode[]
 /**
  * Maps CLI agent mode to cost mode for billing.
  *
- * Freebuff's LITE maps to 'free' cost mode (waiting room, rate limits, 0 credits
+ * Freebuff's LITE maps to 'free' cost mode (session gate, rate limits, 0 credits
  * for allowlisted agent+model combos). Regular Codebuff's LITE maps to 'lite' —
- * a normal paid mode (charges credits, no waiting room, no country restrictions).
+ * a normal paid mode (charges credits, no session gate, no country restrictions).
  */
 export const AGENT_MODE_TO_COST_MODE = {
   DEFAULT: 'normal',

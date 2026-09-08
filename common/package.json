@@ -14,7 +14,9 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit -p .",
-    "test": "bun test"
+    "test": "bun test $(bun run --silent test:files)",
+    "test:files": "find src -name '*.test.ts' ! -name '*.integration.test.ts' 2>/dev/null | sort",
+    "test:files:integration": "find src -name '*.integration.test.ts' 2>/dev/null | sort"
   },
   "sideEffects": false,
   "engines": {
@@ -26,7 +28,8 @@
     "@types/pg": "^8.11.10",
     "@types/readable-stream": "^4.0.18",
     "@types/seedrandom": "^3.0.8",
-    "ai": "^5.0.52",
+    "ai": "^7.0.59",
+    "gray-matter": "^4.0.3",
     "ignore": "5.3.2",
     "lodash": "4.17.23",
     "next-auth": "^4.24.11",

@@ -3,14 +3,11 @@ import { AnalyticsEvent } from '../constants/analytics-events'
 const DEFAULT_SAMPLED_RATE = 0.01
 
 const SAMPLED_EVENT_RATES: Partial<Record<AnalyticsEvent, number>> = {
-  [AnalyticsEvent.AGENT_STEP]: DEFAULT_SAMPLED_RATE,
-  [AnalyticsEvent.CHATGPT_OAUTH_REQUEST]: DEFAULT_SAMPLED_RATE,
-  [AnalyticsEvent.CLI_LOG]: DEFAULT_SAMPLED_RATE,
   [AnalyticsEvent.FEEDBACK_BUTTON_HOVERED]: DEFAULT_SAMPLED_RATE,
   [AnalyticsEvent.FOLLOWUP_CLICKED]: DEFAULT_SAMPLED_RATE,
+  [AnalyticsEvent.CLI_INLINE_AD_SLOT_ELIGIBLE]: DEFAULT_SAMPLED_RATE,
   [AnalyticsEvent.SLASH_COMMAND_USED]: DEFAULT_SAMPLED_RATE,
   [AnalyticsEvent.SLASH_MENU_ACTIVATED]: DEFAULT_SAMPLED_RATE,
-  [AnalyticsEvent.TOOL_USE]: DEFAULT_SAMPLED_RATE,
 }
 
 const ALWAYS_TRACK_EVENTS = new Set<AnalyticsEvent>([
@@ -20,8 +17,6 @@ const ALWAYS_TRACK_EVENTS = new Set<AnalyticsEvent>([
   AnalyticsEvent.PRODUCT_ACTIVE_MINUTE,
   AnalyticsEvent.APP_LAUNCHED,
   AnalyticsEvent.CHANGE_DIRECTORY,
-  AnalyticsEvent.CHATGPT_OAUTH_AUTH_ERROR,
-  AnalyticsEvent.CHATGPT_OAUTH_RATE_LIMITED,
   AnalyticsEvent.FINGERPRINT_GENERATED,
   AnalyticsEvent.INVALID_COMMAND,
   AnalyticsEvent.KNOWLEDGE_FILE_UPDATED,
@@ -33,18 +28,41 @@ const ALWAYS_TRACK_EVENTS = new Set<AnalyticsEvent>([
   // Desktop surface events are low-volume; keep them whole so the app's launch /
   // login / activity funnels aren't decimated by the 1% default sample.
   AnalyticsEvent.DESKTOP_APP_LAUNCHED,
+  // Both halves of the sign-in funnel, or its conversion rate is a ratio of two
+  // differently-sampled numbers.
+  AnalyticsEvent.DESKTOP_LOGIN_STARTED,
   AnalyticsEvent.DESKTOP_LOGIN,
+  // Rare, and the only evidence a sign-in failed at all — a sampled one is a
+  // support ticket with nothing behind it.
+  AnalyticsEvent.DESKTOP_LOGIN_FAILED,
   AnalyticsEvent.DESKTOP_LOGOUT,
   AnalyticsEvent.DESKTOP_THREAD_CREATED,
   AnalyticsEvent.DESKTOP_PROJECT_OPENED,
   AnalyticsEvent.DESKTOP_TURN_COMPLETED,
+  // Low-volume recovery funnel. Sampling any stage independently would make
+  // creation-to-success and repeated-failure rates impossible to measure.
+  AnalyticsEvent.DESKTOP_FAILED_TURN_RECOVERY,
+  // Rare reliability signal — every stalled turn must be counted, never sampled.
+  AnalyticsEvent.DESKTOP_TURN_STALLED,
+  // Its counterpart (an explained silence). Same reasoning: rare, and only
+  // useful if every one is counted.
+  AnalyticsEvent.DESKTOP_TURN_BACKGROUND_WAIT,
+  // Feature adoption is measured as UNIQUE USERS per feature. At desktop's
+  // ~1-2k DAU a 1% sample would leave a feature used by 2% of users with
+  // roughly zero sampled users — the number is unrecoverable from a sample, so
+  // this one is never sampled. Volume is controlled at the emit site instead
+  // (intent-only actions + per-session dedupe), not by throwing away users.
+  AnalyticsEvent.DESKTOP_FEATURE_USED,
   AnalyticsEvent.DESKTOP_HARNESS_CHANGED,
   AnalyticsEvent.DESKTOP_MODEL_CHANGED,
   AnalyticsEvent.DESKTOP_SKILL_RUN,
+  AnalyticsEvent.DESKTOP_CODEX_RESOLUTION,
+  // Rare operational signal. Sampling would make per-version failure rates
+  // misleading precisely when a Windows-only regression affects few installs.
+  AnalyticsEvent.TERMINAL_BROKER_SPAWN_FAILED,
+  AnalyticsEvent.TERMINAL_WATCHDOG_FAILED,
   AnalyticsEvent.TERMINAL_COMMAND_COMPLETED,
   AnalyticsEvent.UPDATE_CODEBUFF_FAILED,
-  AnalyticsEvent.USER_INPUT,
-  AnalyticsEvent.USER_INPUT_COMPLETE,
 ])
 
 type AnalyticsProperties = Record<string, unknown> | undefined
@@ -57,7 +75,9 @@ function getStringProperty(
   return typeof value === 'string' && value.trim() ? value : undefined
 }
 
-function getPropertyUserId(properties: AnalyticsProperties): string | undefined {
+function getPropertyUserId(
+  properties: AnalyticsProperties,
+): string | undefined {
   const direct =
     getStringProperty(properties, 'userId') ??
     getStringProperty(properties, 'user_id') ??
@@ -110,8 +130,7 @@ export function isFullTelemetryEnabled(params: {
     getStringProperty(params.properties, 'userEmail'),
     getStringProperty(params.properties, 'email'),
   ].filter(
-    (value): value is string =>
-      typeof value === 'string' && value.length > 0,
+    (value): value is string => typeof value === 'string' && value.length > 0,
   )
 
   return candidates.some((candidate) => ids.has(candidate))
@@ -121,19 +140,23 @@ function getEventSampleRate(
   event: AnalyticsEvent,
   properties: AnalyticsProperties,
 ): number {
-  const level = getStringProperty(properties, 'level')?.toLowerCase()
-  if (
-    event === AnalyticsEvent.CLI_LOG &&
-    (level === 'error' || level === 'fatal')
-  ) {
-    return 1
-  }
-
   if (ALWAYS_TRACK_EVENTS.has(event)) {
     return 1
   }
 
   return SAMPLED_EVENT_RATES[event] ?? 1
+}
+
+/**
+ * Deterministic sampling for high-volume logs/events: hashes a stable key
+ * (typically a userId) so the same key is always in or out of the sample and
+ * per-key funnels stay coherent. Callers should record the rate on sampled
+ * rows (e.g. `sampleRate: 0.02`) so counts can be re-inflated in queries.
+ */
+export function shouldSampleByKey(key: string, rate: number): boolean {
+  if (rate >= 1) return true
+  if (rate <= 0) return false
+  return hashString(key) / 0xffffffff < rate
 }
 
 function hashString(input: string): number {

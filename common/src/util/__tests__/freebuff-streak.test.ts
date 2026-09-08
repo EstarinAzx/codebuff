@@ -3,10 +3,16 @@ import { describe, expect, test } from 'bun:test'
 import {
   addDaysToDateKey,
   calculateFreebuffStreak,
+  getFreebuffDailyStreakRewardPool,
+  getFreebuffStreakGlmBonusUnits,
   getFreebuffUsageDateKey,
-  isFreebuffStreakMilestone,
-  streakRewardPoolsForMilestone,
 } from '../freebuff-streak'
+
+function usageDatesFrom(startDateKey: string, count: number): string[] {
+  return Array.from({ length: count }, (_, index) =>
+    addDaysToDateKey(startDateKey, index),
+  )
+}
 
 describe('freebuff streak helpers', () => {
   test('formats usage dates in the Freebuff reset timezone', () => {
@@ -65,51 +71,132 @@ describe('freebuff streak helpers', () => {
 })
 
 describe('freebuff streak rewards', () => {
-  test('recognizes 7-day multiples as milestones', () => {
-    expect(isFreebuffStreakMilestone(7)).toBe(true)
-    expect(isFreebuffStreakMilestone(14)).toBe(true)
-    expect(isFreebuffStreakMilestone(21)).toBe(true)
-    expect(isFreebuffStreakMilestone(0)).toBe(false)
-    expect(isFreebuffStreakMilestone(6)).toBe(false)
-    expect(isFreebuffStreakMilestone(8)).toBe(false)
+  test('grants one weekly GLM session per completed 7 days, capped at 4', () => {
+    const expected: Array<[streak: number, units: number]> = [
+      [7, 1],
+      [8, 1],
+      [13, 1],
+      [14, 2],
+      [21, 3],
+      [28, 4],
+      [42, 4],
+    ]
+    for (const [streak, units] of expected) {
+      expect(
+        getFreebuffStreakGlmBonusUnits({
+          todayDateKey: addDaysToDateKey('2026-07-01', streak - 1),
+          usageDates: usageDatesFrom('2026-07-01', streak),
+        }),
+      ).toBe(units)
+    }
   })
 
-  test('full access milestone grants a premium bonus plus a weekly GLM bonus', () => {
+  test('returns zero for empty and six-day usage histories', () => {
     expect(
-      streakRewardPoolsForMilestone({
+      getFreebuffStreakGlmBonusUnits({
+        todayDateKey: '2026-07-13',
+        usageDates: [],
+      }),
+    ).toBe(0)
+    expect(
+      getFreebuffStreakGlmBonusUnits({
+        todayDateKey: '2026-07-13',
+        usageDates: usageDatesFrom('2026-07-07', 6),
+      }),
+    ).toBe(0)
+  })
+
+  test('a yesterday-anchored 28-day streak earns the max through the bounded window', () => {
+    // Mirrors the web quota query, which fetches only 28 days back from today:
+    // the oldest still-active max-tier streak (today unused) must be fully
+    // visible inside that window.
+    expect(
+      getFreebuffStreakGlmBonusUnits({
+        todayDateKey: addDaysToDateKey('2026-07-01', 28),
+        usageDates: usageDatesFrom('2026-07-01', 28),
+      }),
+    ).toBe(4)
+  })
+
+  test('refills GLM before the first use of a new week while the streak is alive', () => {
+    expect(
+      getFreebuffStreakGlmBonusUnits({
+        todayDateKey: '2026-07-13',
+        usageDates: usageDatesFrom('2026-07-06', 7),
+      }),
+    ).toBe(1)
+  })
+
+  test('removes the live GLM entitlement after a missed full day', () => {
+    expect(
+      getFreebuffStreakGlmBonusUnits({
+        todayDateKey: '2026-07-14',
+        usageDates: usageDatesFrom('2026-07-06', 7),
+      }),
+    ).toBe(0)
+  })
+
+  test('full access persists only the daily premium bonus', () => {
+    expect(
+      getFreebuffDailyStreakRewardPool({
         streak: 7,
         todayUsed: true,
         accessTier: 'full',
       }),
-    ).toEqual(['premium', 'glm'])
+    ).toBe('premium')
   })
 
-  test('limited access milestone grants only a limited bonus', () => {
+  test('full access grants the daily premium bonus throughout the streak', () => {
     expect(
-      streakRewardPoolsForMilestone({
+      getFreebuffDailyStreakRewardPool({
+        streak: 8,
+        todayUsed: true,
+        accessTier: 'full',
+      }),
+    ).toBe('premium')
+    expect(
+      getFreebuffDailyStreakRewardPool({
+        streak: 13,
+        todayUsed: true,
+        accessTier: 'full',
+      }),
+    ).toBe('premium')
+  })
+
+  test('limited access grants the limited bonus every day at streak >= 7', () => {
+    // The threshold day and later days both grant the bonus.
+    expect(
+      getFreebuffDailyStreakRewardPool({
         streak: 14,
         todayUsed: true,
         accessTier: 'limited',
       }),
-    ).toEqual(['limited'])
+    ).toBe('limited')
+    expect(
+      getFreebuffDailyStreakRewardPool({
+        streak: 9,
+        todayUsed: true,
+        accessTier: 'limited',
+      }),
+    ).toBe('limited')
   })
 
-  test('no reward off a milestone or before today is used', () => {
+  test('no daily reward below seven days or before today is used', () => {
     expect(
-      streakRewardPoolsForMilestone({
+      getFreebuffDailyStreakRewardPool({
         streak: 6,
         todayUsed: true,
         accessTier: 'full',
       }),
-    ).toEqual([])
-    // Streak is a multiple of 7 only because yesterday anchored it; the user
-    // hasn't used Freebuff today, so the milestone isn't earned yet.
+    ).toBeNull()
+    // Streak is at 7 only because yesterday anchored it; the user hasn't used
+    // Freebuff today, so no bonus is earned yet.
     expect(
-      streakRewardPoolsForMilestone({
+      getFreebuffDailyStreakRewardPool({
         streak: 7,
         todayUsed: false,
         accessTier: 'full',
       }),
-    ).toEqual([])
+    ).toBeNull()
   })
 })

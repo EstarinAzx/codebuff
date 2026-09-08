@@ -1,35 +1,14 @@
 /**
  * Centralized prompt builders for /plan and /review commands.
- * This ensures consistent behavior regardless of entry path.
- *
- * By default /plan and /review run on the user's currently selected model. If
- * the user has connected a ChatGPT account (via /connect), we delegate the
- * deep-thinking step to the GPT model through the @thinker-gpt agent instead.
+ * This ensures consistent behavior regardless of entry path. Both run on the
+ * user's currently selected model.
  */
 
-import { getChatGptOAuthStatus } from '../utils/chatgpt-oauth'
-
-// Pick the GPT-delegating variant when a ChatGPT account is connected;
-// otherwise the user's selected model does the work directly.
-function gptOrSelectedModelPrompt(gptVariant: string, selectedModelVariant: string): string {
-  return getChatGptOAuthStatus().connected ? gptVariant : selectedModelVariant
-}
-
-// Base prompt for plan command - always gathers context first.
-export function buildPlanBasePrompt(): string {
-  return gptOrSelectedModelPrompt(
-    'Gather all the relevant context and then spawn @thinker-gpt Think about how to implement the following:',
-    'Gather all the relevant context and then think carefully about how to implement the following:',
-  )
-}
-
-// Base prompt for review command - always gathers context first.
-export function buildReviewBasePrompt(): string {
-  return gptOrSelectedModelPrompt(
-    'Please gather all relevant context and then spawn @thinker-gpt to review:',
-    'Please gather all relevant context and then carefully review:',
-  )
-}
+// Base prompts - both always gather context first.
+const PLAN_BASE_PROMPT =
+  'Gather all the relevant context and then think carefully about how to implement the following:'
+const REVIEW_BASE_PROMPT =
+  'Please gather all relevant context and then carefully review:'
 
 /**
  * Build a plan prompt from user input.
@@ -37,12 +16,11 @@ export function buildReviewBasePrompt(): string {
  * @returns The full prompt to send to the agent
  */
 export function buildPlanPrompt(input: string): string {
-  const basePrompt = buildPlanBasePrompt()
   const trimmedInput = input.trim()
   if (!trimmedInput) {
-    return basePrompt
+    return PLAN_BASE_PROMPT
   }
-  return `${basePrompt}\n\n${trimmedInput}`
+  return `${PLAN_BASE_PROMPT}\n\n${trimmedInput}`
 }
 
 // Base prompt for interview command - asks clarifying questions before acting
@@ -59,6 +37,26 @@ export function buildInterviewPrompt(input: string): string {
     return INTERVIEW_BASE_PROMPT
   }
   return `${INTERVIEW_BASE_PROMPT}\n\n${trimmedInput}`
+}
+
+/**
+ * Build the prompt for a user-invoked skill. Shared by the /skill:<name>
+ * command (when it carries trailing text) and the skill input mode's second
+ * submit, so both entry paths produce byte-identical prompts.
+ *
+ * `content` is the whole SKILL.md (frontmatter included) — same as the
+ * agent-runtime's own skill tool output.
+ */
+export function buildSkillPrompt(
+  skill: { name: string; content: string },
+  input: string,
+): string {
+  const skillContext = `<skill name="${skill.name}">\n${skill.content}\n</skill>`
+  const trimmedInput = input.trim()
+  return (
+    `I invoke the following skill:\n\n${skillContext}\n\n` +
+    (trimmedInput ? `User request: ${trimmedInput}` : '')
+  )
 }
 
 /**
@@ -88,22 +86,24 @@ function getReviewScopeText(scope: ReviewScope): string {
  * @param customInput - Optional custom review focus (when scope is 'custom')
  * @returns The full prompt to send to the agent
  */
-export function buildReviewPrompt(scope: ReviewScope, customInput?: string): string {
-  const basePrompt = buildReviewBasePrompt()
+export function buildReviewPrompt(
+  scope: ReviewScope,
+  customInput?: string,
+): string {
   const scopeText = getReviewScopeText(scope)
 
   // For custom input, append the user's specific focus
   if (scope === 'custom' && customInput?.trim()) {
-    return `${basePrompt} ${customInput.trim()}`
+    return `${REVIEW_BASE_PROMPT} ${customInput.trim()}`
   }
 
   // For preset scopes, use the scope text
   if (scopeText) {
-    return `${basePrompt} ${scopeText}`
+    return `${REVIEW_BASE_PROMPT} ${scopeText}`
   }
 
   // Fallback for custom with no input
-  return basePrompt
+  return REVIEW_BASE_PROMPT
 }
 
 /**
@@ -115,6 +115,6 @@ export function buildReviewPrompt(scope: ReviewScope, customInput?: string): str
 export function buildReviewPromptFromArgs(input: string): string {
   const trimmedInput = input.trim()
   // Use the same format as preset scopes for consistency
-  return `${buildReviewBasePrompt()} ${trimmedInput}`
+  return `${REVIEW_BASE_PROMPT} ${trimmedInput}`
 }
 

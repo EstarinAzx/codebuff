@@ -1,13 +1,24 @@
 import type { TrackEventFn } from './analytics'
 import type { SendActionFn } from './client'
-import type { OpenRouterProviderRoutingOptions , AgentTemplate } from '../agent-template'
+import type {
+  OpenRouterProviderRoutingOptions,
+  AgentTemplate,
+} from '../agent-template'
 import type { ParamsExcluding } from '../function-params'
 import type { Logger } from './logger'
 import type { Model } from '../../old-constants'
 import type { Message } from '../messages/codebuff-message'
+import type { ProviderMetadata } from '../messages/provider-metadata'
 import type { PromptResult } from '../../util/error'
 import type { generateText, streamText, ToolCallPart } from 'ai'
 import type z from 'zod/v4'
+
+/** Auto-recovered stream endings (see sdk/src/impl/stream-interruption.ts):
+ *  - 'stream-interrupted': the stream ended without a finish marker
+ *    (connection cut mid-response — a server deploy or network drop).
+ *  - 'output-limit': the stream produced only reasoning and no usable answer,
+ *    either by reaching its output limit or by reporting a normal stop. */
+export type StreamRecoverySource = 'stream-interrupted' | 'output-limit'
 
 export type StreamChunk =
   | {
@@ -18,18 +29,46 @@ export type StreamChunk =
   | {
       type: 'reasoning'
       text: string
+      /** Provider metadata for the whole reasoning segment (e.g. OpenRouter
+       *  reasoning_details with thinking signatures), delivered on a final
+       *  empty-text chunk once the segment ends. Stored on the history's
+       *  reasoning part so the next request can replay it. */
+      providerOptions?: ProviderMetadata
     }
   | Pick<
       ToolCallPart,
       'type' | 'toolCallId' | 'toolName' | 'input' | 'providerOptions'
     >
-  | { type: 'error'; message: string }
+  | {
+      type: 'error'
+      message: string
+      /** When set, this is an auto-recovered stream ending rather than a
+       *  failure: consumers force another agent step so the model can
+       *  continue, instead of wrapping the message as a tool-call failure and
+       *  instead of the turn silently ending. */
+      source?: StreamRecoverySource
+    }
 
 export type CacheDebugUsageData = {
   inputTokens: number
   outputTokens: number
+  reasoningOutputTokens?: number
   cachedInputTokens: number
   totalTokens: number
+}
+
+/** Provider-reported usage for one model request. */
+export type ModelUsageData = CacheDebugUsageData
+
+/** Provider usage attributed by the runtime to the agent that made the request. */
+export type AgentUsageData = ModelUsageData & {
+  isRoot: boolean
+  agentId?: string
+}
+
+export type ContextCompactionData = {
+  trigger: 'context_limit' | 'cache_expiry' | 'context_limit_and_cache_expiry'
+  thresholdTokens: number
 }
 
 export type PromptAiSdkStreamFn = (
@@ -53,6 +92,9 @@ export type PromptAiSdkStreamFn = (
       normalizedBody?: unknown
     }) => void
     onCacheDebugUsageReceived?: (usage: CacheDebugUsageData) => void
+    onUsageReceived?: (usage: ModelUsageData) => void
+    /** The request ended without an exact final provider usage receipt. */
+    onUsageIncomplete?: () => void
     includeCacheControl?: boolean
     cacheDebugCorrelation?: string
     agentProviderOptions?: OpenRouterProviderRoutingOptions

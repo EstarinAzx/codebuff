@@ -9,10 +9,12 @@ import {
   createRgJsonContext,
 } from '@codebuff/common/testing/mocks'
 import { describe, expect, it, mock, beforeEach, afterEach } from 'bun:test'
+import { PassThrough } from 'node:stream'
 
 import { codeSearch } from '../tools/code-search'
 
 import type { MockChildProcess } from '@codebuff/common/testing/mocks'
+import type { TerminalCommandBroker } from '../tools/run-terminal-command'
 
 describe('codeSearch', () => {
   let mockSpawn: ReturnType<typeof mock>
@@ -32,6 +34,41 @@ describe('codeSearch', () => {
   })
 
   describe('basic search', () => {
+    it('uses the supplied process broker instead of ambient spawn', async () => {
+      const stdout = new PassThrough()
+      const stderr = new PassThrough()
+      let finish!: (code: number | null) => void
+      const requests: Parameters<TerminalCommandBroker['start']>[0][] = []
+      const broker: TerminalCommandBroker = {
+        start: (request) => {
+          requests.push(request)
+          return {
+            stdout,
+            stderr,
+            completion: new Promise((resolve) => {
+              finish = resolve
+            }),
+            kill: () => {},
+            isAlive: () => true,
+          }
+        },
+      }
+      const searchPromise = codeSearch({
+        projectPath: '/test/project',
+        pattern: 'brokered',
+        processBroker: broker,
+      })
+      stdout.write(createRgJsonMatch('file.ts', 1, 'brokered') + '\n')
+      finish(0)
+
+      const result = await searchPromise
+      expect(mockSpawn).not.toHaveBeenCalled()
+      expect(requests).toHaveLength(1)
+      expect(requests[0]!.cwd).toBe('/test/project')
+      expect(requests[0]!.args).toContain('--no-config')
+      expect(asCodeSearchResult(result[0]).stdout).toContain('brokered')
+    })
+
     it('should parse standard ripgrep output without context flags', async () => {
       const searchPromise = codeSearch({
         projectPath: '/test/project',
@@ -738,6 +775,29 @@ describe('codeSearch', () => {
       expect(spawnArgs).not.toContain('"*.ts"')
     })
 
+    it('keeps a quoted glob containing spaces in one argv entry', async () => {
+      const searchPromise = codeSearch({
+        projectPath: '/test/project',
+        pattern: 'import',
+        flags: "-g 'folder with spaces/*.ts'",
+      })
+
+      mockProcess.stdout.emit(
+        'data',
+        Buffer.from(createRgJsonMatch('folder with spaces/file.ts', 1, 'import foo')),
+      )
+      mockProcess.emit('close', 0)
+
+      await searchPromise
+
+      const spawnArgs = mockSpawn.mock.calls[0]![1] as string[]
+      const globIndex = spawnArgs.indexOf('-g')
+      expect(spawnArgs[globIndex + 1]).toBe('folder with spaces/*.ts')
+      expect(spawnArgs).not.toContain('folder')
+      expect(spawnArgs).not.toContain('with')
+      expect(spawnArgs).not.toContain('spaces/*.ts')
+    })
+
     it('should strip quotes from multiple glob patterns', async () => {
       const searchPromise = codeSearch({
         projectPath: '/test/project',
@@ -875,17 +935,28 @@ describe('codeSearch', () => {
       expect(spawnOptions.cwd).toBe('/test/project/subdir')
     })
 
-    it('should reject cwd outside project directory', async () => {
+    it('should search cwd outside the project directory', async () => {
       const searchPromise = codeSearch({
         projectPath: '/test/project',
         pattern: 'test',
         cwd: '../outside',
       })
 
+      const output = createRgJsonMatch('file.ts', 1, 'test content')
+
+      mockProcess.stdout.emit('data', Buffer.from(output))
+      mockProcess.emit('close', 0)
+
       const result = await searchPromise
       const value = asCodeSearchResult(result[0])
 
-      expect(value.errorMessage).toContain('outside the project directory')
+      expect(value.errorMessage).toBeUndefined()
+      expect(value.stdout).toContain('file.ts:')
+
+      // Verify spawn was called with the resolved outside cwd
+      expect(mockSpawn).toHaveBeenCalled()
+      const spawnOptions = mockSpawn.mock.calls[0]![2] as { cwd: string }
+      expect(spawnOptions.cwd).toBe('/test/outside')
     })
   })
 })

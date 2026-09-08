@@ -1,24 +1,149 @@
-import { spawn } from 'child_process'
-import * as fs from 'fs'
+import { spawn, spawnSync } from 'child_process'
 import * as os from 'os'
 import * as path from 'path'
 
-import type { ChildProcess } from 'child_process'
+import type {
+  ChildProcess,
+  ChildProcessWithoutNullStreams,
+} from 'child_process'
+import type { Readable } from 'stream'
 
-import {
-  stripColors,
-  truncateStringWithMessage,
-} from '../../../common/src/util/string'
+import { stripColors } from '../../../common/src/util/string'
 import { getSystemProcessEnv } from '../env'
+import {
+  createWindowsBashNotFoundError,
+  findWindowsBash,
+} from './windows-bash'
 
 import type { CodebuffToolOutput } from '../../../common/src/tools/list'
 
 const COMMAND_OUTPUT_LIMIT = 50_000
+const TRUNCATION_MARKER = '\n[...TRUNCATED DUE TO LENGTH...]\n'
+const MAX_PENDING_COLOR_SEQUENCE_LENGTH = 32
+const INCOMPLETE_COLOR_SEQUENCE_REGEX = /\x1B\[[0-9;]*$/
 // Grace period between SIGTERM and SIGKILL for commands that trap or ignore
 // SIGTERM.
 const KILL_ESCALATION_MS = 1500
+const PROCESS_EXIT_POLL_MS = 25
+
+export type TerminalCommandSpawnRequest = {
+  executable: string
+  args: string[]
+  cwd: string
+  env: NodeJS.ProcessEnv
+}
+
+/** A command process whose complete descendant tree has one owner. */
+export interface TerminalCommandProcess {
+  pid?: number
+  stdout: Readable
+  stderr: Readable
+  /** Settles after stdout/stderr drain; brokers also finish tree cleanup. */
+  completion: Promise<number | null>
+  kill(signal: NodeJS.Signals): void
+  isAlive(): boolean
+}
+
+/**
+ * Host-provided process boundary for interactive applications.
+ *
+ * A broker must start the requested executable without attaching it to the
+ * host's console and return a handle that owns the complete process tree.
+ * Headless SDK consumers can omit this and use the direct process runner.
+ */
+export interface TerminalCommandBroker {
+  start(request: TerminalCommandSpawnRequest): TerminalCommandProcess
+}
+
+/**
+ * Retains a bounded prefix and suffix while continuing to drain a child
+ * process's output. This keeps noisy commands from growing the CLI process to
+ * multiple gigabytes before the result is truncated.
+ */
+export class BoundedOutputBuffer {
+  private head = ''
+  private tail = ''
+  private truncated = false
+  private pendingColorSequence = ''
+  private readonly headLimit: number
+  private readonly tailLimit: number
+
+  constructor(private readonly maxLength: number) {
+    if (maxLength < TRUNCATION_MARKER.length) {
+      throw new Error('Output limit must fit the truncation marker')
+    }
+    const retainedLength = Math.max(0, maxLength - TRUNCATION_MARKER.length)
+    this.headLimit = Math.ceil(retainedLength / 2)
+    this.tailLimit = Math.floor(retainedLength / 2)
+  }
+
+  append(value: string): void {
+    if (!value) return
+
+    let normalized = this.pendingColorSequence + value
+    this.pendingColorSequence = ''
+    const incompleteColorSequence = normalized.match(
+      INCOMPLETE_COLOR_SEQUENCE_REGEX,
+    )?.[0]
+    if (
+      incompleteColorSequence &&
+      incompleteColorSequence.length <= MAX_PENDING_COLOR_SEQUENCE_LENGTH
+    ) {
+      this.pendingColorSequence = incompleteColorSequence
+      normalized = normalized.slice(0, -incompleteColorSequence.length)
+    }
+    normalized = stripColors(normalized)
+    if (!normalized) return
+
+    if (!this.truncated) {
+      const combined = this.head + normalized
+      if (combined.length <= this.maxLength) {
+        this.head = combined
+        return
+      }
+
+      this.truncated = true
+      this.head = combined.slice(0, this.headLimit)
+      this.tail = this.tailLimit === 0 ? '' : combined.slice(-this.tailLimit)
+      return
+    }
+
+    this.tail =
+      this.tailLimit === 0
+        ? ''
+        : (this.tail + normalized).slice(-this.tailLimit)
+  }
+
+  get retainedLength(): number {
+    return this.head.length + this.tail.length
+  }
+
+  format(): string {
+    if (!this.truncated) {
+      return this.head
+    }
+    return this.head + TRUNCATION_MARKER + this.tail
+  }
+}
 
 function killProcessGroup(child: ChildProcess, signal: NodeJS.Signals) {
+  if (os.platform() === 'win32' && child.pid) {
+    // Node's child.kill() only terminates the direct process on Windows. Since
+    // the direct process is Git Bash, killing it first can orphan Bun/Node
+    // grandchildren before the later SIGKILL escalation has a tree to find.
+    // taskkill snapshots and force-terminates the complete descendant tree.
+    const result = spawnSync(
+      'taskkill.exe',
+      ['/pid', String(child.pid), '/t', '/f'],
+      {
+        stdio: 'ignore',
+        windowsHide: true,
+        timeout: 5_000,
+      },
+    )
+    if (!result.error && result.status === 0) return
+  }
+
   if (os.platform() !== 'win32' && child.pid) {
     try {
       // Negative pid signals the whole process group.
@@ -33,122 +158,140 @@ function killProcessGroup(child: ChildProcess, signal: NodeJS.Signals) {
   } catch {}
 }
 
+function isProcessGroupAlive(child: ChildProcess): boolean {
+  if (!child.pid) return false
+  if (os.platform() === 'win32') {
+    return child.exitCode === null && child.signalCode === null
+  }
+  try {
+    // Signal 0 checks for any remaining member without changing its state.
+    process.kill(-child.pid, 0)
+    return true
+  } catch {
+    return false
+  }
+}
+
+async function waitForProcessExit(
+  isAlive: () => boolean,
+  timeoutMs: number,
+  { unref = false }: { unref?: boolean } = {},
+): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs
+  while (isAlive() && Date.now() < deadline) {
+    await new Promise<void>((resolve) => {
+      const pollTimer = setTimeout(resolve, PROCESS_EXIT_POLL_MS)
+      if (unref) pollTimer.unref?.()
+    })
+  }
+  return !isAlive()
+}
+
 // Children are spawned detached on POSIX (own process group) so that abort and
 // timeout can kill the whole tree. That also detaches them from this process's
 // lifetime, so sweep any still-running children when this process exits.
-const liveChildren = new Set<ChildProcess>()
+const liveChildren = new Set<TerminalCommandProcess>()
 let exitSweepInstalled = false
+
+export type ActiveTerminalCommandProcess = {
+  pid: number
+  processGroupId?: number
+}
+
+/**
+ * Return the process IDs owned by in-flight terminal tools. Commands are
+ * started in their own process group on POSIX, where the group ID matches the
+ * child PID. No command text or environment is exposed: diagnostics are often
+ * pasted into bug reports and those values may contain secrets.
+ */
+export function getActiveTerminalCommandProcesses(): ActiveTerminalCommandProcess[] {
+  return Array.from(liveChildren).flatMap((child) => {
+    if (!child.pid) return []
+    return [
+      {
+        pid: child.pid,
+        ...(os.platform() === 'win32' ? {} : { processGroupId: child.pid }),
+      },
+    ]
+  })
+}
+
 function installExitSweep() {
   if (exitSweepInstalled) return
   exitSweepInstalled = true
   process.on('exit', () => {
     for (const child of liveChildren) {
-      killProcessGroup(child, 'SIGKILL')
+      try {
+        child.kill('SIGKILL')
+      } catch {}
     }
   })
 }
 
-// Common locations where Git Bash might be installed on Windows
-const GIT_BASH_COMMON_PATHS = [
-  'C:\\Program Files\\Git\\bin\\bash.exe',
-  'C:\\Program Files (x86)\\Git\\bin\\bash.exe',
-  'C:\\Git\\bin\\bash.exe',
-]
-
-// WSL bash paths that are often unreliable (VM may not be running, quote escaping issues)
-// These are checked last as a fallback only
-const WSL_BASH_PATH_PATTERNS = [
-  'system32',
-  'windowsapps',
-]
-
 /**
- * Find bash executable on Windows.
- * Priority:
- * 1. CODEBUFF_GIT_BASH_PATH environment variable (user override)
- * 2. Common Git Bash installation locations (most reliable)
- * 3. Non-WSL bash in PATH (e.g., Git Bash added to PATH)
- * 4. WSL bash in PATH (last resort - System32, WindowsApps)
- * 
- * WSL bash is deprioritized because it can fail with cryptic errors when:
- * - The WSL VM is not running
- * - Quote/argument escaping issues between Windows and Linux
- * - UTF-16 encoding mismatches
+ * Commands run under Git Bash on Windows, where `nul` is not the null device:
+ * redirecting to it creates a literal file named "nul" (via an NT path that
+ * bypasses the reserved-name check) that Windows tools then refuse to delete.
+ * Models frequently emit cmd-style `> nul 2>&1`, so rewrite `nul` redirection
+ * targets to /dev/null.
  */
-function findWindowsBash(env: NodeJS.ProcessEnv): string | null {
-  // Check for user-specified path via environment variable
-  const customPath = env.CODEBUFF_GIT_BASH_PATH
-  if (customPath && fs.existsSync(customPath)) {
-    return customPath
-  }
-
-  // Check common Git Bash installation locations first (most reliable)
-  for (const commonPath of GIT_BASH_COMMON_PATHS) {
-    if (fs.existsSync(commonPath)) {
-      return commonPath
-    }
-  }
-
-  // Fall back to bash.exe in PATH, but skip WSL paths initially
-  const pathEnv = env.PATH || env.Path || ''
-  const pathDirs = pathEnv.split(path.delimiter)
-  const wslFallbackPaths: string[] = []
-  
-  for (const dir of pathDirs) {
-    const dirLower = dir.toLowerCase()
-    const isWslPath = WSL_BASH_PATH_PATTERNS.some(pattern => dirLower.includes(pattern))
-    
-    const bashPath = path.join(dir, 'bash.exe')
-    if (fs.existsSync(bashPath)) {
-      if (isWslPath) {
-        // Save WSL paths for last resort
-        wslFallbackPaths.push(bashPath)
-      } else {
-        // Non-WSL bash in PATH (e.g., Git Bash added to PATH)
-        return bashPath
-      }
-    }
-    
-    // Also check for just 'bash' (without .exe)
-    const bashPathNoExt = path.join(dir, 'bash')
-    if (fs.existsSync(bashPathNoExt)) {
-      if (isWslPath) {
-        wslFallbackPaths.push(bashPathNoExt)
-      } else {
-        return bashPathNoExt
-      }
-    }
-  }
-
-  // Last resort: use WSL bash if nothing else is available
-  // WSL can be unreliable (VM not running, quote escaping issues, UTF-16 encoding)
-  if (wslFallbackPaths.length > 0) {
-    return wslFallbackPaths[0]
-  }
-
-  return null
+export function rewriteWindowsNulRedirects(command: string): string {
+  return command.replace(/([<>]\s*)nul(?![\w.])/gi, '$1/dev/null')
 }
 
-/**
- * Create an error message for Windows users when bash is not available.
- */
-function createWindowsBashNotFoundError(): Error {
-  return new Error(
-    `Bash is required but was not found on this Windows system.
-
-To fix this, you have several options:
-
-1. Install Git for Windows (includes bash.exe):
-   Download from: https://git-scm.com/download/win
-
-2. Use WSL (Windows Subsystem for Linux):
-   Run in PowerShell (Admin): wsl --install
-   Then run Codebuff inside WSL.
-
-3. Set a custom bash path:
-   Set the CODEBUFF_GIT_BASH_PATH environment variable to your bash.exe location.
-   Example: set CODEBUFF_GIT_BASH_PATH=C:\\path\\to\\bash.exe`,
+function spawnDirectTerminalCommand(
+  request: TerminalCommandSpawnRequest,
+): TerminalCommandProcess {
+  const child: ChildProcessWithoutNullStreams = spawn(
+    request.executable,
+    request.args,
+    {
+      cwd: request.cwd,
+      env: request.env,
+      stdio: 'pipe',
+      // The direct SDK runner owns a process group. Interactive hosts should
+      // provide a broker instead, so the shell never shares their console.
+      detached: true,
+      windowsHide: true,
+    },
   )
+  const closed = new Promise<number | null>((resolve, reject) => {
+    child.once('error', reject)
+    child.once('close', resolve)
+  })
+  const completion = closed.then(async (exitCode) => {
+    if (os.platform() === 'win32' || !isProcessGroupAlive(child)) {
+      return exitCode
+    }
+
+    // SYNC commands do not transfer ownership of background descendants. Reap
+    // anything the shell detached after it reported successful completion,
+    // without making an infinite-timeout terminal tool wait forever.
+    killProcessGroup(child, 'SIGTERM')
+    if (
+      await waitForProcessExit(
+        () => isProcessGroupAlive(child),
+        KILL_ESCALATION_MS,
+      )
+    )
+      return exitCode
+
+    killProcessGroup(child, 'SIGKILL')
+    await waitForProcessExit(
+      () => isProcessGroupAlive(child),
+      KILL_ESCALATION_MS,
+    )
+    return exitCode
+  })
+
+  return {
+    pid: child.pid,
+    stdout: child.stdout,
+    stderr: child.stderr,
+    completion,
+    kill: (signal) => killProcessGroup(child, signal),
+    isAlive: () => isProcessGroupAlive(child),
+  }
 }
 
 export function runTerminalCommand({
@@ -158,6 +301,7 @@ export function runTerminalCommand({
   timeout_seconds,
   env,
   signal,
+  terminalCommandBroker,
 }: {
   command: string
   process_type: 'SYNC' | 'BACKGROUND'
@@ -165,6 +309,7 @@ export function runTerminalCommand({
   timeout_seconds: number
   env?: NodeJS.ProcessEnv
   signal?: AbortSignal
+  terminalCommandBroker?: TerminalCommandBroker
 }): Promise<CodebuffToolOutput<'run_terminal_command'>> {
   if (process_type === 'BACKGROUND') {
     throw new Error('BACKGROUND process_type not implemented')
@@ -176,8 +321,15 @@ export function runTerminalCommand({
       ...getSystemProcessEnv(),
       ...(env ?? {}),
     } as NodeJS.ProcessEnv
+    if (isWindows) {
+      // Preserve other MSYS options while preventing Git Bash descendants from
+      // allocating a ConPTY despite the detached/hidden process flags.
+      processEnv.MSYS = [processEnv.MSYS, 'disable_pcon']
+        .filter(Boolean)
+        .join(' ')
+    }
 
-    if (signal?.aborted) {
+    const resolveAbortedBeforeSpawn = () => {
       resolve([
         {
           type: 'json',
@@ -187,6 +339,10 @@ export function runTerminalCommand({
           },
         },
       ])
+    }
+
+    if (signal?.aborted) {
+      resolveAbortedBeforeSpawn()
       return
     }
 
@@ -194,6 +350,7 @@ export function runTerminalCommand({
     let shellArgs: string[]
 
     if (isWindows) {
+      command = rewriteWindowsNulRedirects(command)
       const bashPath = findWindowsBash(processEnv)
       if (!bashPath) {
         reject(createWindowsBashNotFoundError())
@@ -209,42 +366,65 @@ export function runTerminalCommand({
     // Resolve cwd to absolute path
     const resolvedCwd = path.resolve(cwd)
 
-    const childProcess = spawn(shell, [...shellArgs, command], {
-      cwd: resolvedCwd,
-      env: processEnv,
-      stdio: 'pipe',
-      // On POSIX, give the command its own process group so that killing it
-      // (timeout or user abort) also kills any grandchild processes.
-      detached: !isWindows,
-    })
+    let childProcess: TerminalCommandProcess
+    try {
+      const request: TerminalCommandSpawnRequest = {
+        executable: shell,
+        args: [...shellArgs, command],
+        cwd: resolvedCwd,
+        env: processEnv,
+      }
+      childProcess = terminalCommandBroker
+        ? terminalCommandBroker.start(request)
+        : spawnDirectTerminalCommand(request)
+    } catch (error) {
+      reject(
+        new Error(
+          `${terminalCommandBroker ? 'Failed to start terminal command broker' : 'Failed to spawn command'}: ${error instanceof Error ? error.message : String(error)}`,
+        ),
+      )
+      return
+    }
 
     liveChildren.add(childProcess)
     installExitSweep()
 
-    let stdout = ''
-    let stderr = ''
+    let childLifecycleFinished = false
+    const finishTrackingChild = () => {
+      if (childLifecycleFinished) return
+      childLifecycleFinished = true
+      liveChildren.delete(childProcess)
+    }
+
+    const stdout = new BoundedOutputBuffer(COMMAND_OUTPUT_LIMIT)
+    const stderr = new BoundedOutputBuffer(COMMAND_OUTPUT_LIMIT)
     let timer: NodeJS.Timeout | null = null
     let sigkillTimer: NodeJS.Timeout | null = null
     let processFinished = false
 
     const killChildProcess = () => {
-      killProcessGroup(childProcess, 'SIGTERM')
+      try {
+        childProcess.kill('SIGTERM')
+      } catch {}
       // Escalate in case the command traps or ignores SIGTERM.
-      sigkillTimer = setTimeout(() => {
-        sigkillTimer = null
-        if (childProcess.exitCode === null && childProcess.signalCode === null) {
-          killProcessGroup(childProcess, 'SIGKILL')
+      sigkillTimer = setTimeout(async () => {
+        if (childProcess.isAlive()) {
+          try {
+            childProcess.kill('SIGKILL')
+          } catch {}
         }
+        // A zombie-visible group or faulty broker can remain "alive" forever.
+        // Stop retaining it after a bounded post-kill observation window.
+        await waitForProcessExit(
+          () => childProcess.isAlive(),
+          KILL_ESCALATION_MS,
+          { unref: true },
+        )
+        sigkillTimer = null
+        finishTrackingChild()
       }, KILL_ESCALATION_MS)
       sigkillTimer.unref?.()
     }
-
-    const truncateOutput = (str: string) =>
-      truncateStringWithMessage({
-        str: stripColors(str),
-        maxLength: COMMAND_OUTPUT_LIMIT,
-        remove: 'MIDDLE',
-      })
 
     const onAbort = () => {
       if (processFinished) return
@@ -260,8 +440,8 @@ export function runTerminalCommand({
           type: 'json',
           value: {
             command,
-            stdout: truncateOutput(stdout),
-            ...(stderr ? { stderr: truncateOutput(stderr) } : {}),
+            stdout: stdout.format(),
+            ...(stderr.retainedLength > 0 ? { stderr: stderr.format() } : {}),
             message:
               'Command interrupted: the run was aborted by the user and the process was killed before it completed.',
           },
@@ -274,9 +454,12 @@ export function runTerminalCommand({
       childProcess.stderr.destroy()
     }
     signal?.addEventListener('abort', onAbort, { once: true })
+    if (signal?.aborted) {
+      onAbort()
+    }
 
     // Set up timeout if timeout_seconds >= 0 (infinite timeout when < 0)
-    if (timeout_seconds >= 0) {
+    if (timeout_seconds >= 0 && !processFinished) {
       timer = setTimeout(() => {
         if (!processFinished) {
           processFinished = true
@@ -291,58 +474,71 @@ export function runTerminalCommand({
 
     // Collect stdout
     childProcess.stdout.on('data', (data: Buffer) => {
-      stdout += data.toString()
+      stdout.append(data.toString())
     })
 
     // Collect stderr
     childProcess.stderr.on('data', (data: Buffer) => {
-      stderr += data.toString()
+      stderr.append(data.toString())
     })
 
     // Handle process completion
-    childProcess.on('close', (exitCode) => {
-      liveChildren.delete(childProcess)
-      if (sigkillTimer) {
-        clearTimeout(sigkillTimer)
-        sigkillTimer = null
-      }
+    childProcess.completion
+      .then((exitCode) => {
+        if (sigkillTimer) {
+          // A process can exit while a descendant ignores SIGTERM. Preserve
+          // bounded escalation and tracking while cleanup is still active.
+          if (!childProcess.isAlive()) {
+            clearTimeout(sigkillTimer)
+            sigkillTimer = null
+            finishTrackingChild()
+          }
+        } else {
+          finishTrackingChild()
+        }
 
-      if (processFinished) return
-      processFinished = true
+        if (processFinished) return
+        processFinished = true
 
-      if (timer) {
-        clearTimeout(timer)
-      }
-      signal?.removeEventListener('abort', onAbort)
+        if (timer) {
+          clearTimeout(timer)
+        }
+        signal?.removeEventListener('abort', onAbort)
 
-      // Truncate stdout to prevent excessive output
-      const truncatedStdout = truncateOutput(stdout)
-      const truncatedStderr = truncateOutput(stderr)
+        const truncatedStdout = stdout.format()
+        const truncatedStderr = stderr.format()
 
-      // Include stderr in stdout for compatibility with existing behavior
-      const combinedOutput = {
-        command,
-        stdout: truncatedStdout,
-        ...(truncatedStderr ? { stderr: truncatedStderr } : {}),
-        ...(exitCode !== null ? { exitCode } : {}),
-      }
+        const combinedOutput = {
+          command,
+          stdout: truncatedStdout,
+          ...(truncatedStderr ? { stderr: truncatedStderr } : {}),
+          ...(exitCode !== null ? { exitCode } : {}),
+        }
 
-      resolve([{ type: 'json', value: combinedOutput }])
-    })
+        resolve([{ type: 'json', value: combinedOutput }])
+      })
+      .catch((error: unknown) => {
+        const wasFinished = processFinished
+        processFinished = true
 
-    // Handle spawn errors
-    childProcess.on('error', (error) => {
-      liveChildren.delete(childProcess)
+        if (timer) {
+          clearTimeout(timer)
+        }
+        signal?.removeEventListener('abort', onAbort)
 
-      if (processFinished) return
-      processFinished = true
+        if (childProcess.isAlive()) {
+          if (!sigkillTimer) killChildProcess()
+        } else {
+          finishTrackingChild()
+        }
 
-      if (timer) {
-        clearTimeout(timer)
-      }
-      signal?.removeEventListener('abort', onAbort)
+        if (wasFinished) return
 
-      reject(new Error(`Failed to spawn command: ${error.message}`))
-    })
+        reject(
+          new Error(
+            `${terminalCommandBroker ? 'Terminal command broker failed' : childProcess.pid ? 'Terminal command process failed' : 'Failed to spawn command'}: ${error instanceof Error ? error.message : String(error)}`,
+          ),
+        )
+      })
   })
 }

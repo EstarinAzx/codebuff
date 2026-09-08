@@ -100,6 +100,100 @@ describe('user messages', () => {
       },
     ])
   })
+
+  // Callers on `ai` v7 reach this v2 model through the SDK's compatibility
+  // proxy, which forwards a LanguageModelV4 prompt untouched — so `data`
+  // arrives TAGGED, not raw. Reading it as raw stringified the wrapper into
+  // `data:image/png;base64,[object Object]` and 400'd every image turn.
+  describe('LanguageModelV4 tagged file data', () => {
+    it('reads base64 out of a tagged data part', async () => {
+      const result = convertToOpenAICompatibleChatMessages([
+        {
+          role: 'user',
+          content: [
+            {
+              type: 'file',
+              data: { type: 'data', data: 'AAECAw==' },
+              mediaType: 'image/png',
+            } as any,
+          ],
+        },
+      ])
+
+      expect(result[0].content).toEqual([
+        {
+          type: 'image_url',
+          image_url: { url: 'data:image/png;base64,AAECAw==' },
+        },
+      ])
+    })
+
+    it('reads bytes out of a tagged data part', async () => {
+      const result = convertToOpenAICompatibleChatMessages([
+        {
+          role: 'user',
+          content: [
+            {
+              type: 'file',
+              data: { type: 'data', data: new Uint8Array([0, 1, 2, 3]) },
+              mediaType: 'image/png',
+            } as any,
+          ],
+        },
+      ])
+
+      expect(result[0].content).toEqual([
+        {
+          type: 'image_url',
+          image_url: { url: 'data:image/png;base64,AAECAw==' },
+        },
+      ])
+    })
+
+    it('passes a tagged url part through', async () => {
+      const result = convertToOpenAICompatibleChatMessages([
+        {
+          role: 'user',
+          content: [
+            {
+              type: 'file',
+              data: { type: 'url', url: new URL('https://example.com/a.png') },
+              mediaType: 'image/png',
+            } as any,
+          ],
+        },
+      ])
+
+      expect(result[0].content).toEqual([
+        {
+          type: 'image_url',
+          image_url: { url: 'https://example.com/a.png' },
+        },
+      ])
+    })
+  })
+
+  it('does not re-prefix data that is already a data URL', async () => {
+    const result = convertToOpenAICompatibleChatMessages([
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'file',
+            data: 'data:image/png;base64,AAECAw==',
+            mediaType: 'image/png',
+          },
+        ],
+      },
+    ])
+
+    expect(result[0].content).toEqual([
+      {
+        type: 'image_url',
+        image_url: { url: 'data:image/png;base64,AAECAw==' },
+      },
+    ])
+  })
 })
 
 describe('tool calls', () => {
@@ -544,6 +638,142 @@ describe('provider-specific metadata merging', () => {
         ],
       },
     ])
+  })
+
+  it('should replay reasoning_details from reasoning part provider options', () => {
+    const details = [
+      {
+        type: 'reasoning.text',
+        text: 'Need the weather.',
+        signature: 'sig-abc',
+        format: 'anthropic-claude-v1',
+      },
+    ]
+    const result = convertToOpenAICompatibleChatMessages([
+      {
+        role: 'assistant',
+        content: [
+          {
+            type: 'reasoning',
+            text: 'Need the weather.',
+            providerOptions: { codebuff: { reasoning_details: details } },
+          },
+          {
+            type: 'tool-call',
+            toolCallId: 'call1',
+            toolName: 'get_weather',
+            input: { location: 'Hangzhou' },
+          },
+        ],
+      },
+    ])
+
+    expect(result).toEqual([
+      {
+        role: 'assistant',
+        content: '',
+        reasoning_details: details,
+        tool_calls: [
+          {
+            id: 'call1',
+            type: 'function',
+            function: {
+              name: 'get_weather',
+              arguments: JSON.stringify({ location: 'Hangzhou' }),
+            },
+          },
+        ],
+      },
+    ])
+  })
+
+  it('replays reasoning_details recorded for the requesting model', () => {
+    const details = [
+      {
+        type: 'reasoning.text',
+        text: 'Need the weather.',
+        signature: 'sig-abc',
+        format: 'anthropic-claude-v1',
+      },
+    ]
+    const result = convertToOpenAICompatibleChatMessages(
+      [
+        {
+          role: 'assistant',
+          content: [
+            {
+              type: 'reasoning',
+              text: 'Need the weather.',
+              providerOptions: {
+                codebuff: {
+                  reasoning_details: details,
+                  model: 'anthropic/claude-opus-4.8',
+                },
+              },
+            },
+          ],
+        },
+      ],
+      { providerOptionsName: 'codebuff', modelId: 'anthropic/claude-opus-4.8' },
+    )
+
+    expect(result[0].reasoning_details).toEqual(details)
+  })
+
+  it('drops reasoning_details recorded for a different model', () => {
+    const details = [
+      {
+        type: 'reasoning.text',
+        text: 'Need the weather.',
+        signature: 'sig-abc',
+        format: 'anthropic-claude-v1',
+      },
+    ]
+    const result = convertToOpenAICompatibleChatMessages(
+      [
+        {
+          role: 'assistant',
+          content: [
+            {
+              type: 'reasoning',
+              text: 'Need the weather.',
+              providerOptions: {
+                codebuff: {
+                  reasoning_details: details,
+                  model: 'anthropic/claude-opus-4.8',
+                },
+              },
+            },
+          ],
+        },
+      ],
+      { providerOptionsName: 'codebuff', modelId: 'deepseek/deepseek-v3' },
+    )
+
+    expect(result[0].reasoning_details).toBeUndefined()
+    expect(result[0].reasoning_content).toBe('Need the weather.')
+  })
+
+  it('reads reasoning_details only from the named provider namespace', () => {
+    const details = [{ type: 'reasoning.text', text: 'x', signature: 's' }]
+    const result = convertToOpenAICompatibleChatMessages(
+      [
+        {
+          role: 'assistant',
+          content: [
+            {
+              type: 'reasoning',
+              text: 'x',
+              providerOptions: { other: { reasoning_details: details } },
+            },
+          ],
+        },
+      ],
+      { providerOptionsName: 'codebuff' },
+    )
+
+    expect(result[0].reasoning_details).toBeUndefined()
+    expect(result[0].reasoning_content).toBe('x')
   })
 
   it('should handle a single tool role message with multiple tool-result parts', () => {

@@ -1,3 +1,9 @@
+import {
+  FALLBACK_FREEBUFF_MODEL_ID,
+  isFreebuffPremiumModelId,
+  SUPPORTED_FREEBUFF_MODELS,
+  type FreebuffModelOption,
+} from '@codebuff/common/constants/freebuff-models'
 import { getRateLimitsByModel } from '@codebuff/common/types/freebuff-session'
 import { TextAttributes } from '@opentui/core'
 import { useKeyboard } from '@opentui/react'
@@ -9,7 +15,13 @@ import {
   returnToFreebuffLanding,
 } from '../hooks/use-freebuff-session'
 import { useTheme } from '../hooks/use-theme'
+import { useFreebuffModelStore } from '../state/freebuff-model-store'
 import { useFreebuffSessionStore } from '../state/freebuff-session-store'
+import {
+  FREEBUCKS_LABEL,
+  formatFreebucks,
+  freebucksOf,
+} from '../utils/freebucks'
 import { formatSessionUnits } from '../utils/format-session-units'
 import { isPlainEnterKey } from '../utils/terminal-enter-detection'
 import { BORDER_CHARS } from '../utils/ui-constants'
@@ -33,7 +45,7 @@ export const SessionEndedBanner: React.FC<SessionEndedBannerProps> = ({
 }) => {
   const theme = useTheme()
   const [pendingAction, setPendingAction] = useState<
-    'waiting-room' | 'same-chat' | null
+    'landing' | 'same-chat' | null
   >(null)
 
   // All premium models share one daily pool; the server replicates the same
@@ -45,15 +57,41 @@ export const SessionEndedBanner: React.FC<SessionEndedBannerProps> = ({
   const isQuotaExhausted = premiumQuota
     ? premiumQuota.recentCount >= premiumQuota.limit
     : false
+  const freebucks = useFreebuffSessionStore((s) => freebucksOf(s.session))
   const accessTier = useFreebuffSessionStore((s) =>
     s.session && 'accessTier' in s.session ? s.session.accessTier : 'full',
   )
   const quotaLabel = accessTier === 'limited' ? 'sessions' : 'premium sessions'
-  const bannerTitle = premiumQuota
-    ? `Session ended  ·  ${formatSessionUnits(premiumQuota.recentCount)} of ${premiumQuota.limit} ${quotaLabel} used today`
-    : 'Session ended'
+  // On the meter the pool count is the wrong number twice over: the session
+  // that just ended was charged to Freebucks, not to that pool, and the pool
+  // is not what decides whether another one can start. Report the balance the
+  // next session will actually be bought with.
+  const bannerTitle = freebucks
+    ? `Session ended  ·  ${formatFreebucks(freebucks.balance)} ${FREEBUCKS_LABEL} left`
+    : premiumQuota
+      ? `Session ended  ·  ${formatSessionUnits(premiumQuota.recentCount)} of ${premiumQuota.limit} ${quotaLabel} used today`
+      : 'Session ended'
   const landingButtonLabel = 'Change model'
   const landingPendingLabel = 'Opening model selection…'
+
+  // With the shared premium pool spent, rejoining on the still-selected
+  // premium model would be rejected server-side and dead-end on the terminal
+  // rate-limited screen. Continue on the unlimited fallback (DeepSeek V4
+  // Flash) instead — the same flip the landing picker's recommendation makes.
+  // Limited tier is excluded: its models all share the one exhausted pool, so
+  // there is nothing to flip to.
+  const selectedModel = useFreebuffModelStore((s) => s.selectedModel)
+  const continueOnFallback =
+    isQuotaExhausted &&
+    accessTier !== 'limited' &&
+    isFreebuffPremiumModelId(selectedModel)
+  const fallbackModel: FreebuffModelOption | undefined =
+    SUPPORTED_FREEBUFF_MODELS.find((m) => m.id === FALLBACK_FREEBUFF_MODEL_ID)
+  const fallbackModelName = fallbackModel?.displayName ?? 'DeepSeek V4 Flash'
+  // Remind the user of the fallback's data-collection policy before they
+  // continue on it — the landing picker shows this caveat on the model row,
+  // but this banner is a one-keypress continue, so surface it here too.
+  const fallbackWarning = fallbackModel?.warning
 
   // While a request is still streaming, restart is disabled: it would
   // unmount <Chat> and abort the in-flight agent run. The promise is "we
@@ -62,10 +100,10 @@ export const SessionEndedBanner: React.FC<SessionEndedBannerProps> = ({
   const canRestart = !isStreaming && pendingAction === null
   const pickNewModel = useCallback(() => {
     if (!canRestart) return
-    setPendingAction('waiting-room')
+    setPendingAction('landing')
     // Drop back to the landing picker (status: 'none') so the user picks a
-    // model and hits Enter again to commit, instead of being silently
-    // re-queued. app.tsx swaps us into <WaitingRoomScreen> on the
+    // model and hits Enter again to commit, instead of silently starting a
+    // new session. app.tsx swaps us into <FreebuffLandingScreen> on the
     // transition, unmounting this banner — no need to clear the pending state on
     // success.
     returnToFreebuffLanding({ resetChat: true }).catch(() =>
@@ -76,10 +114,18 @@ export const SessionEndedBanner: React.FC<SessionEndedBannerProps> = ({
   const startSameChatSession = useCallback(() => {
     if (!canRestart) return
     setPendingAction('same-chat')
+    if (continueOnFallback) {
+      // In-memory flip only (like the server-driven model flips): today's
+      // exhausted pool must not overwrite the user's saved preference. The
+      // rejoin POST reads the store at tick time, so it picks this up.
+      useFreebuffModelStore
+        .getState()
+        .setSelectedModel(FALLBACK_FREEBUFF_MODEL_ID)
+    }
     // Re-POST with the currently selected model and keep the chat/run state
     // intact so the next prompt continues the same conversation.
     refreshFreebuffSession().catch(() => setPendingAction(null))
-  }, [canRestart])
+  }, [canRestart, continueOnFallback])
 
   useKeyboard(
     useCallback(
@@ -144,7 +190,9 @@ export const SessionEndedBanner: React.FC<SessionEndedBannerProps> = ({
             >
               {pendingAction === 'same-chat'
                 ? 'Starting…'
-                : 'Press Enter to continue in a new session'}
+                : continueOnFallback
+                  ? `Press Enter to continue with ${fallbackModelName}`
+                  : 'Press Enter to continue in a new session'}
             </text>
           </Button>
           <box style={{ flexGrow: 1 }} />
@@ -153,7 +201,7 @@ export const SessionEndedBanner: React.FC<SessionEndedBannerProps> = ({
             style={{
               borderStyle: 'single',
               borderColor:
-                pendingAction === 'waiting-room' ? theme.muted : theme.border,
+                pendingAction === 'landing' ? theme.muted : theme.border,
               customBorderChars: BORDER_CHARS,
               paddingLeft: 1,
               paddingRight: 1,
@@ -163,12 +211,12 @@ export const SessionEndedBanner: React.FC<SessionEndedBannerProps> = ({
             <text
               style={{
                 fg:
-                  pendingAction === 'waiting-room'
+                  pendingAction === 'landing'
                     ? theme.muted
                     : theme.foreground,
               }}
             >
-              {pendingAction === 'waiting-room' ? (
+              {pendingAction === 'landing' ? (
                 landingPendingLabel
               ) : (
                 <>
@@ -179,6 +227,11 @@ export const SessionEndedBanner: React.FC<SessionEndedBannerProps> = ({
             </text>
           </Button>
         </box>
+      )}
+      {!isStreaming && continueOnFallback && fallbackWarning && (
+        <text style={{ fg: theme.secondary, wrapMode: 'word' }}>
+          {`${fallbackModelName} ${fallbackWarning.toLowerCase()}.`}
+        </text>
       )}
     </box>
   )

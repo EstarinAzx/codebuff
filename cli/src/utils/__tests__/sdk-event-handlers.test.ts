@@ -168,6 +168,32 @@ const createTestContext = (agentMode: AgentMode = 'DEFAULT') => {
 }
 
 describe('sdk-event-handlers', () => {
+  test('ignores callbacks after the run loses ownership', () => {
+    const { ctx, getMessages, getStreamStatus, streamRefs } =
+      createTestContext()
+    let totalCost: number | undefined
+    ctx.isActive = () => false
+    ctx.onTotalCost = (cost) => {
+      totalCost = cost
+    }
+
+    createStreamChunkHandler(ctx)('late text')
+    createEventHandler(ctx)({
+      type: 'tool_call',
+      toolCallId: 'late-tool',
+      toolName: 'read_files',
+      input: {},
+      agentId: 'main-agent',
+      parentAgentId: undefined,
+    } as any)
+    createEventHandler(ctx)({ type: 'finish', totalCost: 7 } as any)
+
+    expect(getMessages()[0].blocks).toEqual([])
+    expect(getStreamStatus()).toBeNull()
+    expect(streamRefs.state.rootStreamBuffer).toBe('')
+    expect(totalCost).toBe(7)
+  })
+
   test('extracts plan content from root stream', () => {
     const { ctx, getMessages, getHasPlanResponse } = createTestContext('PLAN')
     const handleChunk = createStreamChunkHandler(ctx)
@@ -179,6 +205,28 @@ describe('sdk-event-handlers', () => {
       content: 'Build plan',
     })
     expect(getHasPlanResponse()).toBe(true)
+  })
+
+  test('keeps orphan-close reasoning out of root text', () => {
+    const { ctx, getMessages } = createTestContext()
+    const handleChunk = createStreamChunkHandler(ctx)
+
+    handleChunk('Private reasoning</thi')
+    handleChunk('nk>Answer')
+
+    expect(getMessages()[0].blocks).toMatchObject([
+      {
+        type: 'text',
+        content: 'Private reasoning',
+        textType: 'reasoning',
+        thinkingOpen: false,
+      },
+      {
+        type: 'text',
+        content: 'Answer',
+        textType: 'text',
+      },
+    ])
   })
 
   test('maps spawn agent placeholder to real agent', () => {
@@ -210,6 +258,58 @@ describe('sdk-event-handlers', () => {
     expect(agentBlock.agentId).toBe('agent-real')
     expect(getStreamingAgents().has('agent-real')).toBe(true)
     expect(getStreamingAgents().has('tool-1-0')).toBe(false)
+  })
+
+  test('never renders hidden agents (context-pruner)', () => {
+    const { ctx, getMessages, getStreamingAgents } = createTestContext()
+    const handleEvent = createEventHandler(ctx)
+
+    // Spawned via a visible spawn_agents call: no block, no streaming id
+    handleEvent({
+      type: 'tool_call',
+      toolCallId: 'tool-1',
+      toolName: 'spawn_agents',
+      input: {
+        agents: [
+          { agent_type: 'context-pruner' },
+          { agent_type: 'file-picker', prompt: 'Find files' },
+        ],
+      },
+      agentId: 'main-agent',
+      parentAgentId: undefined,
+    } as any)
+
+    const blocks = getMessages()[0].blocks ?? []
+    expect(blocks).toHaveLength(1)
+    expect((blocks[0] as AgentContentBlock).agentType).toBe('file-picker')
+    expect(getStreamingAgents().has('tool-1-0')).toBe(false)
+    expect(getStreamingAgents().has('tool-1-1')).toBe(true)
+
+    // Lifecycle events for the pruner itself: ignored end to end
+    handleEvent({
+      type: 'subagent_start',
+      agentId: 'pruner-1',
+      agentType: 'context-pruner',
+      displayName: 'Context Pruner',
+      onlyChild: false,
+      parentAgentId: undefined,
+      params: undefined,
+      prompt: undefined,
+    })
+    handleEvent({
+      type: 'subagent_finish',
+      agentId: 'pruner-1',
+      agentType: 'context-pruner',
+      displayName: 'Context Pruner',
+      onlyChild: false,
+      parentAgentId: undefined,
+      params: undefined,
+      prompt: undefined,
+    })
+
+    const blocksAfter = getMessages()[0].blocks ?? []
+    expect(blocksAfter).toHaveLength(1)
+    expect(getStreamingAgents().has('pruner-1')).toBe(false)
   })
 
   test('matches underscore direct-tool aliases to hyphenated agent ids', () => {

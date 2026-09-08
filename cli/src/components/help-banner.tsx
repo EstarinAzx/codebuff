@@ -60,6 +60,7 @@ export const HelpBanner = () => {
             <Shortcut keys="Ctrl+J / Opt+Enter" action="newline" />
             <Shortcut keys="↑↓" action="history" />
             <Shortcut keys="Ctrl+T" action="collapse/expand agents" />
+            <Shortcut keys="Ctrl+Q" action="edit queued messages" />
           </box>
         </box>
 
@@ -71,6 +72,8 @@ export const HelpBanner = () => {
             <Shortcut keys="@files" action="mention" />
             <Shortcut keys="@agents" action="use agent" />
             <Shortcut keys="!bash" action="run command" />
+            <Shortcut keys="/copy" action="copy chat" />
+            <Shortcut keys="/export" action="save chat to file" />
           </box>
         </box>
 

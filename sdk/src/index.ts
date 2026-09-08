@@ -1,3 +1,7 @@
+import { setTreeSitterWasmPath as setCodeMapTreeSitterWasmPath } from '@codebuff/code-map/init-node'
+import { setWasmDir as setCodeMapWasmDir } from '@codebuff/code-map/languages'
+import { getFileTokenScores as getCodeMapFileTokenScores } from '@codebuff/code-map/parse'
+
 export type * from '@codebuff/common/types/json'
 export type * from '@codebuff/common/types/messages/codebuff-message'
 export type * from '@codebuff/common/types/messages/data-content'
@@ -47,7 +51,11 @@ export {
 export type { CodexCredentialsFile } from './codex-credentials'
 export { loadLocalAgents } from './agents/load-agents'
 export { loadMCPConfig, loadMCPConfigSync } from './agents/load-mcp-config'
-export { loadSkills } from './skills/load-skills'
+export {
+  loadSkills,
+  loadSkillsSync,
+  parseSkillFileContent,
+} from './skills/load-skills'
 export { formatAvailableSkillsXml } from '@codebuff/common/util/skills'
 export type { LoadSkillsOptions } from './skills/load-skills'
 export type { SkillDefinition, SkillsMap } from '@codebuff/common/types/skill'
@@ -57,13 +65,14 @@ export type {
   LoadLocalAgentsResult,
   AgentValidationError,
 } from './agents/load-agents'
-export type {
-  MCPFileConfig,
-  LoadedMCPConfig,
-} from './agents/load-mcp-config'
+export type { MCPFileConfig, LoadedMCPConfig } from './agents/load-mcp-config'
 
 export { validateAgents } from './validate-agents'
 export type { ValidationResult, ValidateAgentsOptions } from './validate-agents'
+
+// Free-mode capacity deferral notifications (server-side tier shedding)
+export { setFreeModeCapacityDeferralListener } from './impl/model-provider'
+export type { FreeModeCapacityDeferral } from './impl/model-provider'
 
 // Error utilities
 export {
@@ -92,14 +101,48 @@ export {
 export type { CodebuffFileSystem } from '@codebuff/common/types/filesystem'
 
 // Tree-sitter / code-map exports
-export {
-  getFileTokenScores,
-  setWasmDir,
-  setTreeSitterWasmPath,
-} from '@codebuff/code-map'
+export function getFileTokenScores(
+  ...args: Parameters<typeof getCodeMapFileTokenScores>
+): ReturnType<typeof getCodeMapFileTokenScores> {
+  return getCodeMapFileTokenScores(...args)
+}
+
+export function setWasmDir(dir: string): void {
+  setCodeMapWasmDir(dir)
+}
+
+export function setTreeSitterWasmPath(wasmPath: string): void {
+  setCodeMapTreeSitterWasmPath(wasmPath)
+}
 export type { FileTokenData, TokenCallerMap } from '@codebuff/code-map'
 
-export { runTerminalCommand } from './tools/run-terminal-command'
+export {
+  getActiveTerminalCommandProcesses,
+  runTerminalCommand,
+} from './tools/run-terminal-command'
+export type {
+  ActiveTerminalCommandProcess,
+  TerminalCommandBroker,
+  TerminalCommandProcess,
+  TerminalCommandSpawnRequest,
+} from './tools/run-terminal-command'
+// Containment for a sponsored run on the user's own machine (COD-336). Exported
+// from the SDK rather than kept in Desktop because the CLI needs the same
+// boundary, and a second copy of a seatbelt profile is a second thing to be
+// wrong about.
+export {
+  assertSponsoredCommandCwd,
+  assertSponsoredReadPath,
+  assertSponsoredWritePath,
+  createSponsoredCodeSearchBroker,
+  createSponsoredTerminalBroker,
+  findBubblewrap,
+  sponsoredCodeSearchFlagsRefusal,
+  sponsoredContainment,
+  sponsoredMacProfile,
+} from './tools/sponsored-sandbox'
+export type { SponsoredSandboxOptions } from './tools/sponsored-sandbox'
+export { createSponsoredRootedFileSystem } from './tools/sponsored-rooted-filesystem'
 export {
   promptAiSdk,
   promptAiSdkStream,

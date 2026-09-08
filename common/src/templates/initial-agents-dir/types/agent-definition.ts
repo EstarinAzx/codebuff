@@ -189,6 +189,41 @@ export interface AgentDefinition {
    */
   inheritParentSystemPrompt?: boolean
 
+  /** Opt in to windowed file reads: read_files accepts { path, offset, limit }
+   * entries, whole-file reads are capped per file, glob results are capped, and
+   * the read_files/code_search tool descriptions teach a search-first reading
+   * style. Defaults to false, which keeps the legacy read behavior.
+   */
+  windowedFileReads?: boolean
+
+  /** Drop the agent-attribution trailer from the run_terminal_command commit
+   * guidance, so a commit this agent makes carries no `Co-Authored-By` or
+   * "Generated with" line. For a run that commits into somebody else's
+   * repository on their behalf. Defaults to false, which keeps the trailer.
+   */
+  suppressCommitAttribution?: boolean
+
+  /** Opt in to mechanical context compaction: the runtime rewrites old history
+   * into a condensed summary before the next step. Defaults to false.
+   *
+   * Compaction runs when the context grows past the model's budget, and also
+   * once the prompt cache has gone cold — the next request re-reads the whole
+   * history at full price anyway, so rewriting it there is free. Pass
+   * `{ cacheExpiryMs }` to tune that idle threshold, or `{ cacheExpiryMs: null }`
+   * to compact on the context limit only.
+   *
+   * The cold-cache pass is skipped on a context smaller than
+   * `cacheExpiryMinTokens`, since compaction always costs detail and a small
+   * history has little to reclaim. Pass null to take it at any size. The
+   * context-limit pass ignores this floor.
+   */
+  compactContext?:
+    | boolean
+    | {
+        cacheExpiryMs?: number | null
+        cacheExpiryMinTokens?: number | null
+      }
+
   /** Background information for the agent. Fairly optional. Prefer using instructionsPrompt for agent instructions. */
   systemPrompt?: string
 
@@ -306,6 +341,27 @@ export interface AgentStepContext {
   agentState: AgentState
   prompt?: string
   params?: Record<string, any>
+  /**
+   * The model this step is running on, after any per-request override of the
+   * definition's `model`. `handleSteps` is serialized with `toString()`, so a
+   * generator cannot close over request-time state — read the model here
+   * instead (e.g. to size a context budget to the model's window).
+   *
+   * Supplied by the runtime; optional so a generator invoked directly (tests)
+   * or run on an older runtime degrades rather than throwing. Treat
+   * `undefined` as "unknown model" and pick a safe default.
+   */
+  model?: string
+  /**
+   * Context-pruning thresholds for `model` (budget, idle gap, token floor),
+   * resolved by the runtime. A serialized generator that spawns
+   * `context-pruner` reads them here; optional for the same reason as `model`.
+   */
+  contextPruning?: {
+    maxContextLength: number
+    cacheExpiryMs: number
+    cacheExpiryMinTokens: number
+  }
   logger: Logger
 }
 
@@ -380,6 +436,7 @@ export type ModelName =
 
   // Anthropic
   | 'anthropic/claude-fable-5'
+  | 'anthropic/claude-opus-5'
   | 'anthropic/claude-sonnet-4.6'
   | 'anthropic/claude-opus-4.8'
   | 'anthropic/claude-opus-4.7'
@@ -393,15 +450,11 @@ export type ModelName =
   | 'google/gemini-3.1-pro-preview'
   | 'google/gemini-3-pro-preview'
   | 'google/gemini-3-flash-preview'
-  | 'google/gemini-3.1-flash-lite-preview'
+  | 'google/gemini-3.5-flash-lite'
+  | 'google/gemini-3.1-flash-lite'
   | 'google/gemini-2.5-pro'
   | 'google/gemini-2.5-flash'
   | 'google/gemini-2.5-flash-lite'
-
-  // X-AI
-  | 'x-ai/grok-4-fast'
-  | 'x-ai/grok-4.1-fast'
-  | 'x-ai/grok-code-fast-1'
 
   // Qwen
   | 'qwen/qwen3-max'
@@ -446,7 +499,6 @@ export type ModelName =
   | 'z-ai/glm-4.7-flash'
   | 'z-ai/glm-4.7-flash:nitro'
   | 'minimax/minimax-m2.5'
-  | 'minimax/minimax-m2.7'
   | 'minimax/minimax-m3'
   | (string & {})
 

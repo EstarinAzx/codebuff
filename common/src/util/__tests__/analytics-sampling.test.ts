@@ -39,38 +39,46 @@ describe('analytics sampling', () => {
     ).toBe(true)
     expect(
       shouldTrackAnalyticsEvent({
-        event: AnalyticsEvent.USER_INPUT_COMPLETE,
+        event: AnalyticsEvent.TERMINAL_BROKER_SPAWN_FAILED,
         distinctId: 'user-1',
       }),
     ).toBe(true)
-  })
-
-  it('always tracks CLI error logs', () => {
     expect(
       shouldTrackAnalyticsEvent({
-        event: AnalyticsEvent.CLI_LOG,
+        event: AnalyticsEvent.TERMINAL_WATCHDOG_FAILED,
         distinctId: 'user-1',
-        properties: { level: 'error' },
       }),
     ).toBe(true)
   })
 
   it('samples high-volume events deterministically', () => {
     const first = shouldTrackAnalyticsEvent({
-      event: AnalyticsEvent.TOOL_USE,
+      event: AnalyticsEvent.CLI_INLINE_AD_SLOT_ELIGIBLE,
       distinctId: 'user-1',
     })
     const second = shouldTrackAnalyticsEvent({
-      event: AnalyticsEvent.TOOL_USE,
+      event: AnalyticsEvent.CLI_INLINE_AD_SLOT_ELIGIBLE,
       distinctId: 'user-1',
     })
     const otherEvent = shouldTrackAnalyticsEvent({
-      event: AnalyticsEvent.AGENT_STEP,
+      event: AnalyticsEvent.FEEDBACK_BUTTON_HOVERED,
       distinctId: 'user-1',
     })
 
     expect(second).toBe(first)
     expect(typeof otherEvent).toBe('boolean')
+  })
+
+  it('samples inline ad slot demand instead of ingesting every slot', () => {
+    const decisions = Array.from({ length: 1_000 }, (_, i) =>
+      shouldTrackAnalyticsEvent({
+        event: AnalyticsEvent.CLI_INLINE_AD_SLOT_ELIGIBLE,
+        distinctId: `inline-ad-user-${i}`,
+      }),
+    )
+
+    expect(decisions).toContain(true)
+    expect(decisions).toContain(false)
   })
 
   it('honors full telemetry env flags and allowlists', () => {

@@ -29,7 +29,7 @@ CodebuffAI/codebuff  (upstream, public — now a CLI/SDK-only snapshot)
         │
         │  git fetch upstream
         ▼
-   main  ──────────► origin/main          ← clean mirror of upstream snapshot
+   main  ──────────► origin/main          ← exact upstream tree, preserved history
         │            (EstarinAzx/codebuff-modded)
         │
         │  git merge main
@@ -42,7 +42,7 @@ CodebuffAI/codebuff  (upstream, public — now a CLI/SDK-only snapshot)
    (tag v1.0.2-pre-shim pins same commit)
 ```
 
-- **`main`** is a passive mirror of upstream `CodebuffAI/codebuff:main`. `origin/main` == `upstream/main`. Never commit fork-local work here; its only job is to stage the latest upstream snapshot tip before merging into `modded`.
+- **`main`** mirrors the **tree** of upstream `CodebuffAI/codebuff:main`. Commit IDs differ after the 2026-09-08 history bridge. Never commit fork-local code here; verify `git diff --exit-code upstream/main main` before pushing it.
 - **`modded`** is where every fork-local commit lives. Published to npm as `codebuff-mod`, tagged for GitHub Releases.
 - **`modded-pre-shim`** preserves the pre-shim shape (`6048b92ba`, v1.0.2). Tag `v1.0.2-pre-shim` anchors it.
 - The pre-strategy-B `modded` tip (`e534b0650`, last commit before the lean sync) still has the full `web/` + `packages/internal` trees in history — `git checkout e534b0650 -- web packages/internal …` restores them if the backend is ever wanted back.
@@ -71,7 +71,7 @@ git remote set-url --push upstream DISABLED   # fail fast on accidental push
 
 ## Sync recipe
 
-Rebase **often** (monthly at most) — large gaps make the BYOK env-gate and SDK conflicts compound.
+Merge **often** (monthly at most) — large gaps make the BYOK env-gate and SDK conflicts compound.
 
 ### Step 1 — confirm `modded` is clean
 
@@ -83,16 +83,17 @@ git pull --ff-only origin modded
 
 Never start a merge with uncommitted local changes. (In the strategy-B sync, an uncommitted `.context/` doc edit blocked the `main` fast-forward — commit or stash docs first.)
 
-### Step 2 — fast-forward `main` to upstream
+### Step 2 — advance the upstream content mirror
 
 ```bash
 git switch main
 git fetch upstream
 git merge --ff-only upstream/main
-git push origin main
 ```
 
-If `--ff-only` fails, `main` diverged — someone committed fork-local work to it by mistake. **Stop and investigate.** `main` must always fast-forward.
+If fast-forward fails, inspect ancestry and the two snapshot trees. Since the 2026-09-08 bridge, normal upstream updates need `git merge --no-ff upstream/main`: the mirror has an extra history-only parent. Verify that its resulting tree is exactly upstream before `git push origin main`. A content difference means the mirror needs investigation; never force-push `main`.
+
+**Rewritten upstream history:** on 2026-09-08, fetching changed `a8a8d1643` to `ab19b7582` with no merge base. Bridge `88c4df13a` has the exact `ab19b7582` tree and parents `a8a8d1643` and `ab19b7582`. This preserves published history while letting `modded` merge against its real previous snapshot. For another rewrite, review `git diff main upstream/main`, construct the same two-parent snapshot bridge with `git commit-tree`, and verify its tree and parents before fast-forwarding `main`. Do the fork merge on a temporary branch and integrate after verification.
 
 ### Step 3 — record divergence before merging
 
@@ -354,6 +355,8 @@ A `CODEBUFF_USE_BACKEND !== '1'` env-check guards the entire `<LoginModal />` re
 **Shimmed.** Path C dispatch is `getForkHooks().resolveByok?.(params)` before upstream Path A/B. Residual in-place: the hook call, module-state exports (`setActiveByokProfile`, `getActiveByokProfile`, `setByokAgentBindings`, `getByokAgentBindings`, `BYOKProfile` with `oauthProfileId?: string`), and the **exported** `createOpenAIOAuthModel` (byok-resolver imports it). Import is from `@codebuff/llm-providers/openai-compatible`.
 
 **Resolve:** re-anchor `resolveByok` at the top of the resolver (Path C before A/B). Keep `export` on `createOpenAIOAuthModel`. Preserve the module-state exports. Leave the actual Path-C branching in `byok-resolver.ts`.
+
+**September 2026:** upstream removed ChatGPT OAuth and made its resolver synchronous. The fork retains the asynchronous `Promise<ModelResult>` contract, OAuth credentials and SDK exports. Preserve upstream backend retry, delegation, spend-limit and capacity handling beneath the fork routes; await and unwrap the resolver at every caller. The installed Anthropic provider still uses the v2 interface, so its BYOK middleware converts AI SDK 7 tagged file data at that boundary. Keep the real SDK OAuth reasoning and Anthropic image regression tests green.
 
 #### `sdk/src/impl/llm.ts`
 

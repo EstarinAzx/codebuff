@@ -153,23 +153,27 @@ describe('getFiles', () => {
   })
 
   describe('file outside project', () => {
-    test('should return OUTSIDE_PROJECT for absolute paths outside project', async () => {
+    test('should read absolute paths outside project', async () => {
       const mockFs = createMockFs({
-        files: {},
+        files: {
+          '/etc/hosts': { content: '127.0.0.1 localhost' },
+        },
       })
 
       const result = await getFiles({
-        filePaths: ['/etc/passwd'],
+        filePaths: ['/etc/hosts'],
         cwd: '/project',
         fs: mockFs,
       })
 
-      expect(result['/etc/passwd']).toBe(FILE_READ_STATUS.OUTSIDE_PROJECT)
+      expect(result['/etc/hosts']).toBe('127.0.0.1 localhost')
     })
 
-    test('should return OUTSIDE_PROJECT for relative paths that escape project', async () => {
+    test('should read relative paths that escape project', async () => {
       const mockFs = createMockFs({
-        files: {},
+        files: {
+          '/outside/secret.txt': { content: 'secret' },
+        },
       })
 
       const result = await getFiles({
@@ -178,9 +182,29 @@ describe('getFiles', () => {
         fs: mockFs,
       })
 
-      expect(result['../outside/secret.txt']).toBe(
-        FILE_READ_STATUS.OUTSIDE_PROJECT,
+      expect(result['/outside/secret.txt']).toBe('secret')
+    })
+
+    test('should not apply project gitignore to files outside the project', async () => {
+      // An out-of-project path that contains a default-ignored segment
+      // (node_modules) must still be readable — gitignore is project-scoped.
+      const mockFs = createMockFs({
+        files: {
+          '/other/node_modules/pkg/index.js': { content: 'module.exports = 1' },
+        },
+      })
+
+      const result = await getFiles({
+        filePaths: ['/other/node_modules/pkg/index.js'],
+        cwd: '/project',
+        fs: mockFs,
+      })
+
+      expect(result['/other/node_modules/pkg/index.js']).toBe(
+        'module.exports = 1',
       )
+      // The project-scoped gitignore check must be skipped entirely.
+      expect(isFileIgnoredSpy).not.toHaveBeenCalled()
     })
   })
 
@@ -208,7 +232,7 @@ describe('getFiles', () => {
       expect(result['large.bin']).not.toContain('y')
       // Should contain truncation message
       expect(result['large.bin']).toContain('FILE_TOO_LARGE')
-      expect(result['large.bin']).toContain('101,001 chars')
+      expect(result['large.bin']).toContain('101,001 characters')
     })
 
     test('should read files at exactly 100k chars', async () => {
@@ -273,6 +297,83 @@ describe('getFiles', () => {
       // Should be read fully (no truncation message)
       expect(result['underlimit.bin']).toBe(justUnder100k)
       expect(result['underlimit.bin']).not.toContain('FILE_TOO_LARGE')
+    })
+
+    test('should cap combined file contents at 100k chars', async () => {
+      const mockFs = createMockFs({
+        files: {
+          '/project/a.txt': { content: 'a'.repeat(60_000) },
+          '/project/b.txt': { content: 'a'.repeat(60_000) },
+          '/project/c.txt': { content: 'UNIQUE_THIRD_FILE_CONTENT' },
+        },
+      })
+
+      const result = await getFiles({
+        filePaths: ['a.txt', 'b.txt', 'c.txt'],
+        cwd: '/project',
+        fs: mockFs,
+      })
+
+      expect(result['a.txt']).toBe('a'.repeat(60_000))
+      expect(result['b.txt']).toStartWith('a'.repeat(40_000))
+      expect(result['b.txt']).not.toContain('a'.repeat(40_001))
+      expect(result['b.txt']).toContain('combined read_files output')
+      expect(result['c.txt']).not.toContain('UNIQUE_THIRD_FILE_CONTENT')
+      expect(result['c.txt']).toContain('truncated after 0 characters')
+    })
+
+    test('should not spend the shared budget twice on path aliases', async () => {
+      const mockFs = createMockFs({
+        files: {
+          '/project/a.txt': { content: 'a'.repeat(60_000) },
+          '/project/b.txt': { content: 'a'.repeat(40_000) },
+        },
+      })
+
+      const result = await getFiles({
+        filePaths: ['a.txt', './a.txt', 'b.txt'],
+        cwd: '/project',
+        fs: mockFs,
+      })
+
+      expect(result['a.txt']).toBe('a'.repeat(60_000))
+      expect(result['b.txt']).toBe('a'.repeat(40_000))
+    })
+
+    test('should return files with prototype-named paths', async () => {
+      const mockFs = createMockFs({
+        files: Object.fromEntries([
+          ['/project/__proto__', { content: 'prototype file content' }],
+        ]),
+      })
+
+      const result = await getFiles({
+        filePaths: ['__proto__'],
+        cwd: '/project',
+        fs: mockFs,
+      })
+
+      expect(Object.hasOwn(result, '__proto__')).toBe(true)
+      expect(result['__proto__']).toBe('prototype file content')
+    })
+
+    test('should cap token-dense Unicode content before the character limit', async () => {
+      const denseContent = '🧑‍💻🔥🚀⚠️'.repeat(5_000)
+      const mockFs = createMockFs({
+        files: {
+          '/project/dense.txt': { content: denseContent },
+        },
+      })
+
+      const result = await getFiles({
+        filePaths: ['dense.txt'],
+        cwd: '/project',
+        fs: mockFs,
+      })
+
+      expect(result['dense.txt']).not.toBe(denseContent)
+      expect(result['dense.txt']).toContain('estimated-token per-file limit')
+      expect(result['dense.txt']!.length).toBeLessThan(denseContent.length)
     })
   })
 
@@ -424,7 +525,7 @@ describe('getFiles', () => {
       expect(result['src/index.ts']).toBe('content')
     })
 
-    test('should reject absolute paths in sibling directories with matching prefixes', async () => {
+    test('should read absolute paths in sibling directories with matching prefixes', async () => {
       const mockFs = createMockFs({
         files: {
           '/project-other/src/index.ts': { content: 'outside' },
@@ -437,13 +538,126 @@ describe('getFiles', () => {
         fs: mockFs,
       })
 
-      expect(result['/project-other/src/index.ts']).toBe(
-        FILE_READ_STATUS.OUTSIDE_PROJECT,
-      )
+      expect(result['/project-other/src/index.ts']).toBe('outside')
     })
   })
 
   describe('fileFilter option', () => {
+    test('always blocks env files and allows env templates', async () => {
+      const mockFs = createMockFs({
+        files: {
+          '/project/.ENV': { content: 'SECRET=value' },
+          '/project/.env': { content: 'DOT_SEGMENT_SECRET=value' },
+          '/project/.env ': { content: 'TRAILING_SPACE_SECRET=value' },
+          '/project/.env:$DATA': { content: 'ADS_SECRET=value' },
+          '/project/.env.local': { content: 'LOCAL_SECRET=value' },
+          '/project/.env.example': { content: 'API_KEY=example' },
+          '/project/.ENV.SAMPLE': { content: 'API_KEY=sample' },
+          '/outside/.ENV.PRODUCTION': { content: 'OUTSIDE_SECRET=value' },
+        },
+      })
+
+      const result = await getFiles({
+        filePaths: [
+          '.ENV',
+          '.env/./',
+          '.env ',
+          '.env:$DATA',
+          '.env.local',
+          '.env.example',
+          '.ENV.SAMPLE',
+          '/outside/.ENV.PRODUCTION',
+        ],
+        cwd: '/project',
+        fs: mockFs,
+      })
+
+      expect(result['.ENV']).toBe(FILE_READ_STATUS.IGNORED)
+      expect(result['.env']).toBe(FILE_READ_STATUS.IGNORED)
+      expect(result['.env ']).toBe(FILE_READ_STATUS.IGNORED)
+      expect(result['.env:$DATA']).toBe(FILE_READ_STATUS.IGNORED)
+      expect(result['.env.local']).toBe(FILE_READ_STATUS.IGNORED)
+      expect(result['/outside/.ENV.PRODUCTION']).toBe(FILE_READ_STATUS.IGNORED)
+      expect(result['.env.example']).toBe(
+        `${FILE_READ_STATUS.TEMPLATE}\nAPI_KEY=example`,
+      )
+      expect(result['.ENV.SAMPLE']).toBe(
+        `${FILE_READ_STATUS.TEMPLATE}\nAPI_KEY=sample`,
+      )
+      expect(isFileIgnoredSpy).toHaveBeenCalledTimes(2)
+      expect(isFileIgnoredSpy).toHaveBeenCalledWith({
+        filePath: '.env.example',
+        projectRoot: '/project',
+        fs: mockFs,
+        allowEnvTemplate: true,
+      })
+      expect(isFileIgnoredSpy).toHaveBeenCalledWith({
+        filePath: '.ENV.SAMPLE',
+        projectRoot: '/project',
+        fs: mockFs,
+        allowEnvTemplate: true,
+      })
+    })
+
+    test('keeps env templates subject to gitignore with a custom filter', async () => {
+      isFileIgnoredSpy.mockResolvedValue(true)
+      const mockFs = createMockFs({
+        files: {
+          '/project/.env.example': { content: 'REAL_SECRET=mistake' },
+          '/project/.ENV.SAMPLE': { content: 'REAL_SECRET=mistake' },
+        },
+      })
+
+      const result = await getFiles({
+        filePaths: ['.env.example', '.ENV.SAMPLE'],
+        cwd: '/project',
+        fs: mockFs,
+        fileFilter: () => ({ status: 'allow' }),
+      })
+
+      expect(result['.env.example']).toBe(FILE_READ_STATUS.IGNORED)
+      expect(result['.ENV.SAMPLE']).toBe(FILE_READ_STATUS.IGNORED)
+      expect(isFileIgnoredSpy).toHaveBeenCalledTimes(2)
+    })
+
+    test('keeps the built-in env policy independent of custom filters', async () => {
+      const mockFs = createMockFs({
+        files: {
+          '/project/.env': { content: 'SECRET=value' },
+          '/project/.env.example': { content: 'API_KEY=example' },
+        },
+      })
+
+      const result = await getFiles({
+        filePaths: ['.env', '.env.example'],
+        cwd: '/project',
+        fs: mockFs,
+        fileFilter: () => ({ status: 'allow' }),
+      })
+
+      expect(result['.env']).toBe(FILE_READ_STATUS.IGNORED)
+      expect(result['.env.example']).toBe(
+        `${FILE_READ_STATUS.TEMPLATE}\nAPI_KEY=example`,
+      )
+    })
+
+    test('does not apply the read_files policy to internal edit reads', async () => {
+      const mockFs = createMockFs({
+        files: {
+          '/project/.env': { content: 'SECRET=value' },
+        },
+      })
+
+      const result = await getFiles({
+        filePaths: ['.env'],
+        cwd: '/project',
+        fs: mockFs,
+        enforceEnvPolicy: false,
+      })
+
+      expect(result['.env']).toBe('SECRET=value')
+    })
+
     test('should block files when filter returns blocked status', async () => {
       const mockFs = createMockFs({
         files: {
@@ -485,26 +699,26 @@ describe('getFiles', () => {
       )
     })
 
-    test('should skip gitignore check for allow-example files', async () => {
+    test('should skip gitignore check for non-env allow-example files', async () => {
       // When caller provides a filter that returns allow-example,
       // the file is read and marked with TEMPLATE prefix
       isFileIgnoredSpy.mockResolvedValue(true)
 
       const mockFs = createMockFs({
         files: {
-          '/project/.env.example': { content: 'template content' },
+          '/project/config.example': { content: 'template content' },
         },
       })
 
       const result = await getFiles({
-        filePaths: ['.env.example'],
+        filePaths: ['config.example'],
         cwd: '/project',
         fs: mockFs,
         fileFilter: () => ({ status: 'allow-example' }),
       })
 
       // Should NOT be blocked since caller's filter marked it as allow-example
-      expect(result['.env.example']).toBe(
+      expect(result['config.example']).toBe(
         FILE_READ_STATUS.TEMPLATE + '\n' + 'template content',
       )
       // When a custom filter is provided, gitignore is not checked
@@ -542,10 +756,97 @@ describe('getFiles', () => {
         fileFilter: () => ({ status: 'allow-example' }),
       })
 
-      // Should still block files outside project
-      expect(result['/etc/passwd']).toBe(FILE_READ_STATUS.OUTSIDE_PROJECT)
+      // Missing files outside the project are reported as missing, not blocked
+      expect(result['/etc/passwd']).toBe(FILE_READ_STATUS.DOES_NOT_EXIST)
       // Should still report missing files
       expect(result['nonexistent.txt']).toBe(FILE_READ_STATUS.DOES_NOT_EXIST)
+    })
+  })
+
+  describe('windowed reads', () => {
+    const bigFile = Array.from({ length: 3000 }, (_, i) => `line ${i + 1}`).join('\n')
+
+    test('reads the whole file when no fileWindows map is given', async () => {
+      const mockFs = createMockFs({
+        files: { '/project/src/big.ts': { content: bigFile } },
+      })
+
+      const result = await getFiles({
+        filePaths: ['src/big.ts'],
+        cwd: '/project',
+        fs: mockFs,
+      })
+
+      expect(result['src/big.ts']).toBe(bigFile)
+    })
+
+    test('caps a plain read at the per-file line limit when windowing is on', async () => {
+      const mockFs = createMockFs({
+        files: { '/project/src/big.ts': { content: bigFile } },
+      })
+
+      const result = await getFiles({
+        filePaths: ['src/big.ts'],
+        cwd: '/project',
+        fs: mockFs,
+        fileWindows: { 'src/big.ts': [{}] },
+      })
+
+      expect(result['src/big.ts']).toContain('showing lines 1-2000 of 3000')
+      expect(result['src/big.ts']).not.toContain('line 2001\n')
+    })
+
+    test('returns only the requested window', async () => {
+      const mockFs = createMockFs({
+        files: { '/project/src/big.ts': { content: bigFile } },
+      })
+
+      const result = await getFiles({
+        filePaths: ['src/big.ts'],
+        cwd: '/project',
+        fs: mockFs,
+        fileWindows: { 'src/big.ts': [{ offset: 2500, limit: 10 }] },
+      })
+
+      expect(result['src/big.ts']).toContain('line 2500')
+      expect(result['src/big.ts']).toContain('showing lines 2500-2509 of 3000')
+      expect(result['src/big.ts']).not.toContain('line 100\n')
+    })
+
+    test('does not render the same file twice for duplicate whole-file entries', async () => {
+      const mockFs = createMockFs({
+        files: { '/project/src/small.ts': { content: 'alpha\nbeta\ngamma' } },
+      })
+
+      const result = await getFiles({
+        filePaths: ['src/small.ts'],
+        cwd: '/project',
+        fs: mockFs,
+        fileWindows: { 'src/small.ts': [{}] },
+      })
+
+      expect(result['src/small.ts']).toBe('alpha\nbeta\ngamma')
+    })
+
+    test('returns every requested window of the same file', async () => {
+      const mockFs = createMockFs({
+        files: { '/project/src/big.ts': { content: bigFile } },
+      })
+
+      const result = await getFiles({
+        filePaths: ['src/big.ts'],
+        cwd: '/project',
+        fs: mockFs,
+        fileWindows: {
+          'src/big.ts': [
+            { offset: 10, limit: 5 },
+            { offset: 2500, limit: 5 },
+          ],
+        },
+      })
+
+      expect(result['src/big.ts']).toContain('showing lines 10-14 of 3000')
+      expect(result['src/big.ts']).toContain('showing lines 2500-2504 of 3000')
     })
   })
 })

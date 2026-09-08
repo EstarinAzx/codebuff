@@ -7,6 +7,7 @@ import { getCliEnv, getSystemProcessEnv } from './env'
 import { loadAgentDefinitions } from './local-agent-registry'
 import { logger } from './logger'
 import { createTraceWriter } from './trace-writer'
+import { terminalCommandBroker } from './terminal-command-broker'
 import { getRgPath } from '../native/ripgrep'
 import { getProjectRoot } from '../project-files'
 
@@ -76,9 +77,15 @@ export async function getCodebuffClient(): Promise<CodebuffClient | null> {
       clientInstance = new CodebuffClient({
         apiKey,
         cwd: projectRoot,
+        // Keeps the model's skill list identical to the one the registry shows
+        // (utils/skill-registry.ts). The SDK default is project-only so that a
+        // server embedding it cannot read a home directory by omission; the
+        // CLI runs on the user's machine, so it opts back in.
+        includeHomeSkills: true,
         agentDefinitions,
         logger,
         traceWriter: createTraceWriter(),
+        terminalCommandBroker,
         overrideTools: {
           ask_user: async (input: ClientToolCall<'ask_user'>['input']) => {
             const askUserResponse = await AskUserBridge.request(

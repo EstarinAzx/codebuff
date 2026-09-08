@@ -1,5 +1,3 @@
-import { isExplicitlyDefinedModel } from '../util/model-utils'
-
 // Allowed model prefixes for validation
 export const ALLOWED_MODEL_PREFIXES = [
   'anthropic',
@@ -9,6 +7,7 @@ export const ALLOWED_MODEL_PREFIXES = [
   'deepseek',
   'minimax',
   'mimo',
+  'tencent',
 ] as const
 
 export const costModes = [
@@ -57,7 +56,6 @@ export type openrouterModel =
 
 export const openCodeZenModels = {
   opencode_kimi_k2_6: 'opencode/kimi-k2.6',
-  opencode_minimax_m2_7: 'opencode/minimax-m2.7',
 } as const
 export type OpenCodeZenModel =
   (typeof openCodeZenModels)[keyof typeof openCodeZenModels]
@@ -95,8 +93,7 @@ export const moonshotModels = {
   kimiK26: 'moonshotai/kimi-k2.6',
   kimiK27Code: 'moonshotai/kimi-k2.7-code',
 } as const
-export type MoonshotModel =
-  (typeof moonshotModels)[keyof typeof moonshotModels]
+export type MoonshotModel = (typeof moonshotModels)[keyof typeof moonshotModels]
 
 // Vertex uses "endpoint IDs" for finetuned models, which are just integers
 export const finetunedVertexModels = {
@@ -167,6 +164,13 @@ export const providerModelNames = {
 
 export type Model = (typeof models)[keyof typeof models] | (string & {})
 
+const explicitlyDefinedModels = new Set<string>(Object.values(models))
+
+/** Whether `model` is one of the statically configured model IDs. */
+export function isExplicitlyDefinedModel(model: Model): boolean {
+  return explicitlyDefinedModels.has(model)
+}
+
 const nonCacheableModels = [
   models.openrouter_grok_4,
 ] satisfies string[] as string[]
@@ -199,6 +203,39 @@ export function supportsAssistantPrefill(model: Model): boolean {
   return version < 4.6
 }
 
+/**
+ * Token budget a model's conversation may reach before context-pruner
+ * summarizes it, compared against `agentState.contextTokenCount`.
+ *
+ * 400k by default: every model we serve has roughly a 1M window, which leaves
+ * ample headroom — including for the estimator being a GPT-4o count applied to
+ * models with their own tokenizers, so it can run under the provider's real
+ * number.
+ *
+ * The one exception is the 262,144-token Kimi K2.7 Code below, confirmed by a
+ * provider rejection quoted in freebuff-models.ts. It gets 250k, the value it
+ * has been running on in prod. That margin is thin for exactly the estimator
+ * reason above, so it is the number to revisit if this model starts hitting
+ * context rejections. (The HY3 and Ling 3.0 Flash entries that used to sit
+ * alongside it went with those models on 2026-08-07. Kimi K3 Eco is NOT an
+ * exception: CrofAI serves it at a 1M context.)
+ *
+ * MiniMax M3 is deliberately NOT an exception: its real enforced limit is
+ * 524,288, not the 1,048,576 OpenRouter advertises (Fireworks rejects with
+ * "model maximum context length: 524287"), but 400k is still under it.
+ *
+ * The return type names the two tiers rather than `number` so a third tier is
+ * a deliberate addition here. Serialized generators receive the result as
+ * `AgentStepContext.contextPruning.maxContextLength`.
+ */
+const SMALL_CONTEXT_MODELS: ReadonlySet<string> = new Set([
+  moonshotModels.kimiK27Code,
+])
+
+export function contextPrunerBudgetForModel(model: Model): 250_000 | 400_000 {
+  return SMALL_CONTEXT_MODELS.has(model) ? 250_000 : 400_000
+}
+
 export function getModelFromShortName(
   modelName: string | undefined,
 ): Model | undefined {
@@ -221,6 +258,7 @@ export const providerDomains = {
   deepseek: 'deepseek.com',
   minimax: 'minimax.io',
   mimo: 'xiaomi.com',
+  tencent: 'tencent.com',
   xai: 'x.ai',
 } as const
 
@@ -235,6 +273,7 @@ export function getLogoForModel(modelName: string): string | undefined {
     domain = providerDomains.minimax
   else if (Object.values(mimoModels).includes(modelName as MimoModel))
     domain = providerDomains.mimo
+  else if (modelName.startsWith('tencent/')) domain = providerDomains.tencent
   else if (modelName.includes('claude')) domain = providerDomains.anthropic
   else if (modelName.includes('grok')) domain = providerDomains.xai
 

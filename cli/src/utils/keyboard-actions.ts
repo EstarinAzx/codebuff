@@ -42,6 +42,20 @@ export type ChatKeyboardState = {
 
   // Exit handler state
   nextCtrlCWillExit: boolean
+
+  /**
+   * The sponsor dock's detail panel (COD-457).
+   *
+   * `dockExpandable` is the sticky experiment arm: false in control, and then
+   * the chord resolves to `none` exactly as it did before this issue.
+   * `dockPanelOpen` is what makes Escape mean "close the panel" — and ONLY
+   * while it is true. `useKeyboard` is a global listener, so a panel that
+   * listened for Escape on its own would close AND interrupt the stream on one
+   * keypress; routing it through this resolver is what keeps Escape's six
+   * existing meanings intact the moment the panel is shut.
+   */
+  dockExpandable: boolean
+  dockPanelOpen: boolean
 }
 
 /**
@@ -87,6 +101,7 @@ export type ChatKeyboardAction =
 
   // Queue actions
   | { type: 'clear-queue' }
+  | { type: 'open-queue-panel' }
 
   // Exit actions
   | { type: 'exit-app-warning' }
@@ -105,6 +120,10 @@ export type ChatKeyboardAction =
 
   // Out of credits action
   | { type: 'open-buy-credits' }
+
+  // Sponsor dock (COD-457)
+  | { type: 'toggle-dock-panel' }
+  | { type: 'close-dock-panel' }
 
   // No action needed
   | { type: 'none' }
@@ -162,12 +181,46 @@ export function resolveChatKeyboardAction(
     return { type: 'none' }
   }
 
+  // Priority 1.5: The sponsor dock's detail panel (COD-457).
+  //
+  // Escape is claimed here and NOWHERE ELSE, and only while the panel is
+  // actually open — so with it shut, Escape keeps every one of the six
+  // meanings below untouched, which is the acceptance criterion. It sits above
+  // priority 2 and priority 4 deliberately: a user pressing Escape at an open
+  // panel means "close this", not "exit the mode" and not "interrupt the run".
+  // It sits BELOW the out-of-credits and feedback takeovers, which own the
+  // whole keyboard while they are up.
+  //
+  // The chord is Ctrl+O: verified unclaimed across every `useKeyboard`
+  // consumer and inert in the composer (`getPrintableKeySequence` returns null
+  // for any modified key). In the control arm `dockExpandable` is false and
+  // both branches fall through to `none`, so the chord does nothing at all.
+  const isDockChord =
+    key.ctrl && key.name === 'o' && !key.meta && !key.option && !key.shift
+  if (state.dockExpandable) {
+    if (isEscape && state.dockPanelOpen) {
+      return { type: 'close-dock-panel' }
+    }
+    if (isDockChord) {
+      return { type: 'toggle-dock-panel' }
+    }
+  }
+
   // Priority 2: Non-default input mode escape
   // Escape should exit the current mode BEFORE interrupting streams
   // Exception: modes with blockKeyboardExit cannot be escaped
   const modeConfig = getInputModeConfig(state.inputMode)
   if (isEscape && state.inputMode !== 'default' && !modeConfig.blockKeyboardExit) {
     return { type: 'exit-input-mode' }
+  }
+
+  // Priority 2.5: Open the queue editor (Ctrl+Q). Ahead of the ctrl-c rules
+  // below so it works with a half-typed message still in the composer; raw
+  // mode disables XON/XOFF, so ctrl-q is ours to use.
+  if (key.ctrl && key.name === 'q' && !key.meta && !key.option) {
+    return state.queuedCount > 0
+      ? { type: 'open-queue-panel' }
+      : { type: 'none' }
   }
 
   // Priority 3: Clear input with ctrl-c when there's text
@@ -202,31 +255,22 @@ export function resolveChatKeyboardAction(
     state.slashMatchesLength > 0 &&
     !state.disableSlashSuggestions
   ) {
-    if (isDown) {
-      // If user is navigating history (historyNavDownEnabled), skip menu navigation entirely
-      if (state.historyNavDownEnabled) {
-        // Fall through to history navigation
-      } else if (state.slashSelectedIndex < state.slashMatchesLength - 1) {
-        return { type: 'slash-menu-down' }
-      } else {
-        return { type: 'none' } // At bottom, don't navigate
-      }
+    if (isDown && !state.historyNavDownEnabled) {
+      return state.slashSelectedIndex < state.slashMatchesLength - 1
+        ? { type: 'slash-menu-down' }
+        : { type: 'none' } // At bottom, don't navigate
     }
-    if (isUp) {
-      // If user is navigating history (historyNavUpEnabled), skip menu navigation entirely
-      if (state.historyNavUpEnabled) {
-        // Fall through to history navigation
-      } else if (state.slashSelectedIndex > 0) {
-        return { type: 'slash-menu-up' }
-      } else {
-        return { type: 'none' } // At top, don't navigate
-      }
+    if (isUp && !state.historyNavUpEnabled) {
+      return state.slashSelectedIndex > 0
+        ? { type: 'slash-menu-up' }
+        : { type: 'none' } // At top, don't navigate
     }
     if (isTab || isShiftTab) {
       // Tab accepts the highlighted command into the input without executing
       // it, leaving the cursor after it so the user can keep typing (e.g. extra
       // params for a skill). Tab no longer navigates between items — use the
-      // arrow keys for that. Enter (below) selects and submits immediately.
+      // arrow keys for that. Enter (below) selects the highlighted item; the
+      // command decides whether selection inserts text or executes immediately.
       return { type: 'slash-menu-complete' }
     }
     if (isEnter) {
@@ -237,25 +281,15 @@ export function resolveChatKeyboardAction(
   // Priority 7: Mention menu navigation (when active)
   // Skip menu navigation for Up/Down if history navigation is enabled (user is paging through history)
   if (state.mentionMenuActive && state.totalMentionMatches > 0) {
-    if (isDown) {
-      // If user is navigating history (historyNavDownEnabled), skip menu navigation entirely
-      if (state.historyNavDownEnabled) {
-        // Fall through to history navigation
-      } else if (state.agentSelectedIndex < state.totalMentionMatches - 1) {
-        return { type: 'mention-menu-down' }
-      } else {
-        return { type: 'none' } // At bottom, don't navigate
-      }
+    if (isDown && !state.historyNavDownEnabled) {
+      return state.agentSelectedIndex < state.totalMentionMatches - 1
+        ? { type: 'mention-menu-down' }
+        : { type: 'none' } // At bottom, don't navigate
     }
-    if (isUp) {
-      // If user is navigating history (historyNavUpEnabled), skip menu navigation entirely
-      if (state.historyNavUpEnabled) {
-        // Fall through to history navigation
-      } else if (state.agentSelectedIndex > 0) {
-        return { type: 'mention-menu-up' }
-      } else {
-        return { type: 'none' } // At top, don't navigate
-      }
+    if (isUp && !state.historyNavUpEnabled) {
+      return state.agentSelectedIndex > 0
+        ? { type: 'mention-menu-up' }
+        : { type: 'none' } // At top, don't navigate
     }
     if (isShiftTab) {
       return { type: 'mention-menu-shift-tab' }
@@ -377,5 +411,7 @@ export function createDefaultChatKeyboardState(): ChatKeyboardState {
     historyNavUpEnabled: false,
     historyNavDownEnabled: false,
     nextCtrlCWillExit: false,
+    dockExpandable: false,
+    dockPanelOpen: false,
   }
 }

@@ -1,12 +1,22 @@
-import { CHATGPT_OAUTH_ENABLED } from '@codebuff/common/constants/chatgpt-oauth'
 import { safeOpen } from '../utils/open-url'
 
-import { handleAdsEnable, handleAdsDisable } from './ads'
+import {
+  handleAdsEnable,
+  handleAdsDisable,
+  handleProposalAccept,
+  handleProposalDismiss,
+  handleProposalMenu,
+  handleProposalPullRequest,
+  handleProposalRemoveWorktree,
+  handleProposalNeverAdvertiser,
+  handleProposalReport,
+  handleProposalsOff,
+} from './ads'
 import { handleCopyConversationCommand } from './copy-conversation'
+import { handleExportConversationCommand } from './export-conversation'
 import { handleHelpCommand } from './help'
 import { handleImageCommand } from './image'
 import { handleInitializationFlowLocally } from './init'
-import { buildInterviewPrompt, buildPlanPrompt, buildReviewPromptFromArgs } from './prompt-builders'
 import {
   handleLoginBYOKHint,
   handleModelCommand,
@@ -20,17 +30,25 @@ import {
   handleProvidersTest,
   handleProvidersUnbind,
 } from './providers'
+import {
+  collectProcessDiagnostics,
+  formatProcessDiagnostics,
+} from './process-diagnostics'
+import { buildInterviewPrompt, buildPlanPrompt, buildReviewPromptFromArgs, buildSkillPrompt } from './prompt-builders'
+import { handleReasoningCommand } from './reasoning'
 import { runBashCommand } from './router'
 import { handleUsageCommand } from './usage'
 import { tryForkPresetAdd } from '../fork-impls/preset-add-handlers'
 import { returnToFreebuffLanding } from '../hooks/use-freebuff-session'
 import { useThemeStore } from '../hooks/use-theme'
-import { WEBSITE_URL } from '../login/constants'
+import { LOGIN_WEBSITE_URL, WEBSITE_URL } from '../login/constants'
 import { startNewChat } from '../project-files'
 import { useChatStore } from '../state/chat-store'
+import { stopActiveRun } from '../utils/active-run'
 import { useFeedbackStore } from '../state/feedback-store'
 import { useLoginStore } from '../state/login-store'
 import { AGENT_MODES, END_SESSION_MESSAGE, IS_FREEBUFF } from '../utils/constants'
+import { exitCliCleanly } from '../utils/exit-cleanly'
 import { getSystemMessage, getUserMessage } from '../utils/message-history'
 import { capturePendingAttachments } from '../utils/pending-attachments'
 import { getSkillByName } from '../utils/skill-registry'
@@ -44,7 +62,6 @@ import type { AgentMode } from '../utils/constants'
 import type { UseMutationResult } from '@tanstack/react-query'
 
 export type RouterParams = {
-  abortControllerRef: React.MutableRefObject<AbortController | null>
   agentMode: AgentMode
   inputRef: React.MutableRefObject<MultilineInputHandle | null>
   inputValue: string
@@ -53,6 +70,9 @@ export type RouterParams = {
   logoutMutation: UseMutationResult<boolean, Error, void, unknown>
   streamMessageIdRef: React.MutableRefObject<string | null>
   addToQueue: (message: string, attachments?: PendingAttachment[]) => void
+  /** Whether the message queue currently holds anything. Steering checks it
+   *  so a mid-turn submit can't overtake earlier queued submissions. */
+  hasQueuedMessages?: () => boolean
   clearMessages: () => void
   saveToHistory: (message: string) => void
   scrollToLatest: () => void
@@ -67,7 +87,6 @@ export type RouterParams = {
     value: ChatMessage[] | ((prev: ChatMessage[]) => ChatMessage[]),
   ) => void
   setUser: (value: React.SetStateAction<User | null>) => void
-  stopStreaming: () => void
 }
 
 export type CommandResult = {
@@ -75,6 +94,7 @@ export type CommandResult = {
   openPublishMode?: boolean
   openChatHistory?: boolean
   openReviewScreen?: boolean
+  openQueuePanel?: boolean
   preSelectAgents?: string[]
 } | void
 
@@ -201,9 +221,14 @@ const FREEBUFF_REMOVED_COMMANDS = new Set([
 ])
 
 const FREEBUFF_ONLY_COMMANDS = new Set([
-  'connect',
   'plan',
   'end-session',
+  'dashboard',
+  // Freebuff-only because the ladder it reads is the FREEBUFF catalog's, and
+  // the metadata it sets is honored only for free-mode traffic
+  // (isFreebuffOriginatedRequest). On Codebuff the command would take a value
+  // and silently drop it.
+  'reasoning',
 ])
 
 const ALL_COMMANDS: CommandDefinition[] = [
@@ -225,6 +250,94 @@ const ALL_COMMANDS: CommandDefinition[] = [
       clearInput(params)
     },
   }),
+  // The sponsored-proposal channel's controls (COD-376). Separate from
+  // ads:disable, which is the display rail: one switch for both would turn off
+  // something the user did not ask about.
+  //
+  // THE CARD ITSELF BINDS NO BARE KEYS while its menu is closed, so these are
+  // not merely a convenience for when no card is on screen -- `/ads:proposal`
+  // and `/ads:dismiss-proposal` are the ONLY way to reach the menu and the
+  // decline. `useKeyboard` is global and the composer's handler is too, so the
+  // `m` and `esc` these replaced fired alongside whatever the user was
+  // actually typing.
+  defineCommand({
+    name: 'ads:proposal',
+    handler: (params) => {
+      const message = handleProposalMenu(useChatStore.getState().messages)
+      // Null means it opened the menu, which is visible on its own; a system
+      // line would only push the card it refers to further up the transcript.
+      if (message) params.setMessages((prev) => [...prev, getSystemMessage(message)])
+      params.saveToHistory(params.inputValue.trim())
+      clearInput(params)
+    },
+  }),
+  defineCommand({
+    name: 'ads:dismiss-proposal',
+    handler: (params) => {
+      const message = handleProposalDismiss(useChatStore.getState().messages)
+      if (message) params.setMessages((prev) => [...prev, getSystemMessage(message)])
+      params.saveToHistory(params.inputValue.trim())
+      clearInput(params)
+    },
+  }),
+  // Phase 2 (COD-339): accept, and the two commands that only mean anything
+  // once a run has left a branch behind. `accept-proposal` opens the CONSENT
+  // and starts nothing -- the screen is the decision, and it is refusable.
+  defineCommand({
+    name: 'ads:accept-proposal',
+    handler: (params) => {
+      const message = handleProposalAccept(useChatStore.getState().messages)
+      // Null means the consent screen is up, which is visible on its own.
+      if (message) params.setMessages((prev) => [...prev, getSystemMessage(message)])
+      params.saveToHistory(params.inputValue.trim())
+      clearInput(params)
+    },
+  }),
+  defineCommand({
+    name: 'ads:pull-request',
+    handler: async (params) => {
+      const message = await handleProposalPullRequest()
+      params.setMessages((prev) => [...prev, getSystemMessage(message)])
+      params.saveToHistory(params.inputValue.trim())
+      clearInput(params)
+    },
+  }),
+  defineCommand({
+    name: 'ads:remove-worktree',
+    handler: async (params) => {
+      const message = await handleProposalRemoveWorktree()
+      params.setMessages((prev) => [...prev, getSystemMessage(message)])
+      params.saveToHistory(params.inputValue.trim())
+      clearInput(params)
+    },
+  }),
+  defineCommand({
+    name: 'ads:report-proposal',
+    handler: async (params) => {
+      const message = await handleProposalReport(useChatStore.getState().messages)
+      params.setMessages((prev) => [...prev, getSystemMessage(message)])
+      params.saveToHistory(params.inputValue.trim())
+      clearInput(params)
+    },
+  }),
+  defineCommand({
+    name: 'ads:never-advertiser',
+    handler: async (params) => {
+      const message = await handleProposalNeverAdvertiser(useChatStore.getState().messages)
+      params.setMessages((prev) => [...prev, getSystemMessage(message)])
+      params.saveToHistory(params.inputValue.trim())
+      clearInput(params)
+    },
+  }),
+  defineCommand({
+    name: 'ads:proposals-off',
+    handler: async (params) => {
+      const message = await handleProposalsOff()
+      params.setMessages((prev) => [...prev, getSystemMessage(message)])
+      params.saveToHistory(params.inputValue.trim())
+      clearInput(params)
+    },
+  }),
   defineCommand({
     name: 'help',
     aliases: ['h', '?'],
@@ -236,10 +349,27 @@ const ALL_COMMANDS: CommandDefinition[] = [
     },
   }),
   defineCommand({
+    name: 'diagnostics',
+    aliases: ['diag', 'processes'],
+    handler: (params) => {
+      const diagnostics = formatProcessDiagnostics(collectProcessDiagnostics())
+      params.setMessages((prev) => [...prev, getSystemMessage(diagnostics)])
+      params.saveToHistory(params.inputValue.trim())
+      clearInput(params)
+    },
+  }),
+  defineCommand({
     name: 'copy',
-    aliases: ['copy-chat', 'export'],
+    aliases: ['copy-chat'],
     handler: async (params) => {
       await handleCopyConversationCommand(params)
+    },
+  }),
+  defineCommandWithArgs({
+    name: 'export',
+    aliases: ['export-chat'],
+    handler: async (params, args) => {
+      await handleExportConversationCommand(params, args)
     },
   }),
   defineCommandWithArgs({
@@ -319,9 +449,7 @@ const ALL_COMMANDS: CommandDefinition[] = [
         return
       }
 
-      params.abortControllerRef.current?.abort()
-      params.stopStreaming()
-      params.setCanProcessQueue(false)
+      stopActiveRun('logout')
 
       const { resetLoginState } = useLoginStore.getState()
       params.logoutMutation.mutate(undefined, {
@@ -333,6 +461,9 @@ const ALL_COMMANDS: CommandDefinition[] = [
           ])
           clearInput(params)
           setTimeout(() => {
+            // The confirmation remains visible briefly; fence that window too
+            // before unmounting the authenticated runtime.
+            stopActiveRun('logout')
             params.setUser(null)
             params.setIsAuthenticated(false)
           }, 300)
@@ -344,7 +475,7 @@ const ALL_COMMANDS: CommandDefinition[] = [
     name: 'exit',
     aliases: ['quit', 'q'],
     handler: () => {
-      process.kill(process.pid, 'SIGINT')
+      void exitCliCleanly()
     },
   }),
   defineCommandWithArgs({
@@ -353,6 +484,12 @@ const ALL_COMMANDS: CommandDefinition[] = [
     handler: (params, args) => {
       const trimmedArgs = args.trim()
 
+      // Abort any in-flight run BEFORE clearing state and rotating the chat
+      // id: an orphaned run would keep streaming after the switch and its
+      // late checkpoints/final save would persist the old conversation's
+      // state under the new chat (or vice versa).
+      stopActiveRun('new-chat')
+
       // Clear the conversation and rotate to a fresh chat directory, so the
       // next message doesn't overwrite the previous conversation's history
       params.setMessages(() => [])
@@ -360,8 +497,6 @@ const ALL_COMMANDS: CommandDefinition[] = [
       startNewChat()
       params.saveToHistory(params.inputValue.trim())
       clearInput(params)
-      params.stopStreaming()
-
       // If user provided a message, send it as the first message in the new chat
       if (trimmedArgs) {
         // Re-enable queue processing so the message can be sent
@@ -426,6 +561,33 @@ const ALL_COMMANDS: CommandDefinition[] = [
     aliases: ['strong', 'sub', 'buy-credits'],
     handler: (params) => {
       safeOpen(WEBSITE_URL + '/subscribe')
+      clearInput(params)
+    },
+  }),
+  defineCommand({
+    name: 'dashboard',
+    // Freebuff-only (see FREEBUFF_ONLY_COMMANDS): the hub is a Freebuff web
+    // surface, and Codebuff has its own credits-shaped `/usage` banner.
+    //
+    // `usage` is one of the aliases because Freebuff removes that command —
+    // its banner is credits- and subscription-shaped — leaving the product
+    // with no answer at all to "how much have I used?". The word now lands
+    // somewhere, and only in the build where nothing else claims it.
+    aliases: ['usage', 'stats', 'streak'],
+    handler: (params) => {
+      const url = `${LOGIN_WEBSITE_URL}/account`
+      params.setMessages((prev) => [
+        ...prev,
+        getUserMessage(params.inputValue.trim()),
+        getSystemMessage(
+          `Opening your dashboard: ${url}\n\nStreak, activity, tokens, sessions and settings for your account — across the CLI, Desktop and web.`,
+        ),
+      ])
+      // Best-effort: `safeOpen` skips headless Linux and a locked-down WSL
+      // rather than risking the process, so the URL above is printed first and
+      // stays useful when nothing opens.
+      void safeOpen(url)
+      params.saveToHistory(params.inputValue.trim())
       clearInput(params)
     },
   }),
@@ -510,19 +672,6 @@ const ALL_COMMANDS: CommandDefinition[] = [
       // Don't save to history - this is just a UI shortcut
     },
   }),
-  ...(CHATGPT_OAUTH_ENABLED
-    ? [
-        defineCommand({
-          name: 'connect',
-          aliases: ['connect:chatgpt', 'chatgpt'],
-          handler: (params) => {
-            useChatStore.getState().setInputMode('connect:chatgpt')
-            params.saveToHistory(params.inputValue.trim())
-            clearInput(params)
-          },
-        }),
-      ]
-    : []),
   defineCommand({
     name: 'history',
     aliases: ['chats'],
@@ -559,8 +708,7 @@ const ALL_COMMANDS: CommandDefinition[] = [
   defineCommandWithArgs({
     name: 'plan',
     handler: (params, args) => {
-      // /plan runs on the selected model by default, or delegates to GPT when a
-      // ChatGPT account is connected (handled in buildPlanPrompt). No gate.
+      // /plan runs on the selected model. No gate.
       const trimmedArgs = args.trim()
 
       params.saveToHistory(params.inputValue.trim())
@@ -585,8 +733,7 @@ const ALL_COMMANDS: CommandDefinition[] = [
   defineCommandWithArgs({
     name: 'review',
     handler: (params, args) => {
-      // /review runs on the selected model by default, or delegates to GPT when
-      // a ChatGPT account is connected (handled in buildReviewPrompt). No gate.
+      // /review runs on the selected model. No gate.
       const trimmedArgs = args.trim()
 
       params.saveToHistory(params.inputValue.trim())
@@ -609,6 +756,17 @@ const ALL_COMMANDS: CommandDefinition[] = [
     },
   }),
   defineCommand({
+    // No `/q` alias: that one already quits the CLI, and a queue editor is not
+    // worth the chance of a mis-fired exit.
+    name: 'queue',
+    aliases: ['queued'],
+    handler: (params) => {
+      params.saveToHistory(params.inputValue.trim())
+      clearInput(params)
+      return { openQueuePanel: true }
+    },
+  }),
+  defineCommand({
     name: 'theme:toggle',
     handler: (params) => {
       const { theme, setThemeName } = useThemeStore.getState()
@@ -622,10 +780,28 @@ const ALL_COMMANDS: CommandDefinition[] = [
       clearInput(params)
     },
   }),
+  // /reasoning (freebuff-only) — read or set the thinking level for the
+  // selected model. Takes effect on the NEXT message: the effort rides
+  // codebuff_metadata on each request, so nothing about the live session has to
+  // be restarted for a change to land.
+  defineCommandWithArgs({
+    name: 'reasoning',
+    aliases: ['effort', 'think'],
+    handler: (params, args) => {
+      const { message } = handleReasoningCommand(args)
+      params.setMessages((prev) => [
+        ...prev,
+        getUserMessage(params.inputValue.trim()),
+        getSystemMessage(message),
+      ])
+      params.saveToHistory(params.inputValue.trim())
+      clearInput(params)
+    },
+  }),
   // /end-session (freebuff-only) — end the active session early and drop back
   // to the model picker. The hook flips status to 'none', which unmounts
-  // <Chat> and mounts <WaitingRoomScreen> on the landing view, where the
-  // user picks a model and hits Enter to rejoin the queue.
+  // <Chat> and mounts <FreebuffLandingScreen>, where the user picks a model
+  // and hits Enter to start a new session.
   defineCommand({
     name: 'end-session',
     aliases: ['model'],
@@ -822,36 +998,50 @@ function createSkillCommand(skillName: string): CommandDefinition {
       params.saveToHistory(trimmed)
       params.setInputValue({ text: '', cursorPosition: 0, lastEditDueToNav: false })
 
-      // Build the message content with skill context and optional user args
-      const skillContext = `<skill name="${skill.name}">
-${skill.content}
-</skill>`
-
-      const userPrompt = `I invoke the following skill:\n\n${skillContext}\n\n`
-        + (args.trim()
-          ? `User request: ${args.trim()}`
-          : '')
-
-      // Check streaming/queue state
-      if (
-        params.isStreaming ||
-        params.streamMessageIdRef.current ||
-        params.isChainInProgressRef.current
-      ) {
-        const pendingAttachments = capturePendingAttachments()
-        params.addToQueue(userPrompt, pendingAttachments)
+      // Bare invocation: like /interview, drop into an input mode so the
+      // user can add instructions before the skill is sent. Enter with an
+      // empty composer still runs the skill as-is (the router's skill-mode
+      // branch), so a no-args run costs one extra keystroke, not a feature.
+      if (!args.trim()) {
+        useChatStore.getState().enterSkillMode(skill.name)
         params.setInputFocused(true)
         params.inputRef.current?.focus()
         return
       }
 
-      params.sendMessage({
-        content: userPrompt,
-        agentMode: params.agentMode,
-      })
-      setTimeout(() => {
-        params.scrollToLatest()
-      }, 0)
+      dispatchSkillPrompt(params, skill, args)
     },
   })
+}
+
+/**
+ * Send (or queue, mid-turn) a user-invoked skill prompt. Shared by the
+ * /skill:<name> args form and the skill input mode's submit (router), so the
+ * two entry paths for the same feature cannot drift.
+ */
+export function dispatchSkillPrompt(
+  params: RouterParams,
+  skill: { name: string; content: string },
+  input: string,
+): void {
+  const userPrompt = buildSkillPrompt(skill, input)
+
+  if (
+    params.isStreaming ||
+    params.streamMessageIdRef.current ||
+    params.isChainInProgressRef.current
+  ) {
+    params.addToQueue(userPrompt, capturePendingAttachments())
+    params.setInputFocused(true)
+    params.inputRef.current?.focus()
+    return
+  }
+
+  params.sendMessage({
+    content: userPrompt,
+    agentMode: params.agentMode,
+  })
+  setTimeout(() => {
+    params.scrollToLatest()
+  }, 0)
 }

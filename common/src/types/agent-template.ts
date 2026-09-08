@@ -133,6 +133,11 @@ export type AgentTemplate<
   }
   includeMessageHistory: boolean
   inheritParentSystemPrompt: boolean
+  windowedFileReads?: boolean
+  suppressCommitAttribution?: boolean
+  compactContext?:
+    | boolean
+    | { cacheExpiryMs?: number | null; cacheExpiryMinTokens?: number | null }
   outputMode: 'last_message' | 'all_messages' | 'structured_output'
   outputSchema?: z.ZodSchema<any>
 
@@ -195,6 +200,23 @@ export type StepHandler<
   agentState: AgentState
   prompt: P
   params: T
+  /**
+   * The model this agent step is running on, after any per-request override of
+   * the template's `model`. Needed because `handleSteps` is serialized with
+   * `toString()` (no closures survive), so a caller that swaps the model at
+   * request time has no other way to tell the generator which model it got.
+   *
+   * Supplied by the runtime; optional so generators invoked directly in tests
+   * keep compiling. Treat `undefined` as "unknown model".
+   */
+  model?: string
+  /** Context-pruning thresholds for `model`, resolved by the runtime; read by
+   *  generators that spawn `context-pruner`. */
+  contextPruning?: {
+    maxContextLength: number
+    cacheExpiryMs: number
+    cacheExpiryMinTokens: number
+  }
   logger: Logger
 }) => StepGenerator
 

@@ -63,6 +63,7 @@ export type ChatKeyboardHandlers = {
 
   // Queue handlers
   onClearQueue: () => void
+  onOpenQueuePanel: () => void
 
   // Exit handlers
   onExitAppWarning: () => void
@@ -87,6 +88,10 @@ export type ChatKeyboardHandlers = {
 
   // Out of credits handler
   onOpenBuyCredits: () => void
+
+  // Sponsor dock (COD-457)
+  onToggleDockPanel: () => void
+  onCloseDockPanel: () => void
 }
 
 /**
@@ -183,6 +188,9 @@ function dispatchAction(
     case 'clear-queue':
       handlers.onClearQueue()
       return true
+    case 'open-queue-panel':
+      handlers.onOpenQueuePanel()
+      return true
     case 'exit-app-warning':
       handlers.onExitAppWarning()
       return true
@@ -255,6 +263,12 @@ function dispatchAction(
       return true
     case 'open-buy-credits':
       handlers.onOpenBuyCredits()
+      return true
+    case 'toggle-dock-panel':
+      handlers.onToggleDockPanel()
+      return true
+    case 'close-dock-panel':
+      handlers.onCloseDockPanel()
       return true
     case 'none':
       return false

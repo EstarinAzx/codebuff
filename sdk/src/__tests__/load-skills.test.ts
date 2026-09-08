@@ -4,11 +4,16 @@ import os from 'os'
 import path from 'path'
 
 import {
+  SKILL_DESCRIPTION_MAX_LENGTH,
   SKILL_FILE_NAME,
   SKILL_NAME_MAX_LENGTH,
 } from '@codebuff/common/constants/skills'
 
-import { loadSkills } from '../skills/load-skills'
+import {
+  loadSkills,
+  parseSkillFileContent,
+  resolveSkillsDirs,
+} from '../skills/load-skills'
 
 const writeSkill = ({
   skillsRoot,
@@ -64,7 +69,8 @@ describe('loadSkills', () => {
     rmSync(tempRoot, { recursive: true, force: true })
   })
 
-  test('discovers valid skills from all default search roots', async () => {
+  /** Writes one skill into each of the four possible roots. */
+  const writeSkillInEveryRoot = () => {
     writeSkill({
       skillsRoot: path.join(homeDir, '.claude', 'skills'),
       skillDirName: 'global-claude-skill',
@@ -81,8 +87,32 @@ describe('loadSkills', () => {
       skillsRoot: path.join(projectDir, '.agents', 'skills'),
       skillDirName: 'project-agents-skill',
     })
+  }
+
+  test('discovers project skills, and by default ONLY project skills', async () => {
+    writeSkillInEveryRoot()
 
     const skills = await loadSkills({ cwd: projectDir })
+
+    // The home roots are deliberately absent. A host that embeds this SDK in a
+    // server process would otherwise be served that SERVER's home directory —
+    // see LoadSkillsOptions.includeHomeSkills.
+    expect(Object.keys(skills).sort()).toEqual([
+      'project-agents-skill',
+      'project-claude-skill',
+    ])
+    expect(skills['project-agents-skill']?.description).toBe(
+      'Description for project-agents-skill',
+    )
+  })
+
+  test('discovers skills from all four roots when home skills are opted in', async () => {
+    writeSkillInEveryRoot()
+
+    const skills = await loadSkills({
+      cwd: projectDir,
+      includeHomeSkills: true,
+    })
 
     expect(Object.keys(skills).sort()).toEqual([
       'global-agents-skill',
@@ -92,9 +122,6 @@ describe('loadSkills', () => {
     ])
     expect(skills['global-claude-skill']?.filePath).toBe(
       path.join(homeDir, '.claude', 'skills', 'global-claude-skill', 'SKILL.md'),
-    )
-    expect(skills['project-agents-skill']?.description).toBe(
-      'Description for project-agents-skill',
     )
   })
 
@@ -145,7 +172,7 @@ describe('loadSkills', () => {
       description: 'project agents',
     })
 
-    const skills = await loadSkills({ cwd: projectDir })
+    const skills = await loadSkills({ cwd: projectDir, includeHomeSkills: true })
 
     expect(skills['shared-skill']?.description).toBe('project agents')
     expect(skills['shared-skill']?.filePath).toBe(
@@ -165,7 +192,7 @@ describe('loadSkills', () => {
       description: 'project claude',
     })
 
-    const skills = await loadSkills({ cwd: projectDir })
+    const skills = await loadSkills({ cwd: projectDir, includeHomeSkills: true })
 
     expect(skills['priority-skill']?.description).toBe('project claude')
   })
@@ -267,5 +294,184 @@ describe('loadSkills', () => {
     expect(skills['custom-skill']?.filePath).toBe(
       path.join(customSkillsDir, 'custom-skill', 'SKILL.md'),
     )
+  })
+})
+
+describe('parseSkillFileContent', () => {
+  test('validates in-memory edits with the same rules as disk discovery', () => {
+    const valid = [
+      '---',
+      'name: deploy',
+      'description: Deploy safely',
+      '---',
+      '',
+      '# Deploy',
+    ].join('\n')
+    expect(
+      parseSkillFileContent(valid, {
+        directoryName: 'deploy',
+        filePath: '/skills/deploy/SKILL.md',
+      }),
+    ).toMatchObject({ name: 'deploy', description: 'Deploy safely', content: valid })
+    expect(
+      parseSkillFileContent(valid.replace('name: deploy', 'name: release'), {
+        directoryName: 'deploy',
+        filePath: '/skills/deploy/SKILL.md',
+      }),
+    ).toBeNull()
+  })
+
+  test('preserves the user-only invocation setting', () => {
+    const content = [
+      '---',
+      'name: deploy',
+      'description: Deploy safely',
+      'disable-model-invocation: true',
+      '---',
+      '',
+      '# Deploy',
+    ].join('\n')
+
+    expect(
+      parseSkillFileContent(content, {
+        directoryName: 'deploy',
+        filePath: '/skills/deploy/SKILL.md',
+      }),
+    ).toMatchObject({ disableModelInvocation: true })
+  })
+
+  // registries nest their own bookkeeping under `metadata` (skills.sh stamps a
+  // `hermes:` block onto every skill it serves); rejecting those made popular
+  // skills impossible to install AND invisible when placed on disk by hand
+  test('accepts nested metadata a publisher or registry added', () => {
+    const content = [
+      '---',
+      'name: i-have-adhd',
+      'description: Shape output for a reader with ADHD',
+      'metadata:',
+      '  hermes:',
+      '    tags: [ADHD, Productivity]',
+      '    category: productivity',
+      '  freebuff-builtin: review',
+      '---',
+      '',
+      '# i-have-adhd',
+    ].join('\n')
+
+    const parsed = parseSkillFileContent(content, {
+      directoryName: 'i-have-adhd',
+      filePath: '/skills/i-have-adhd/SKILL.md',
+    })
+
+    expect(parsed).toMatchObject({ name: 'i-have-adhd' })
+    // flat entries stay readable — that is how a Freebuff-authored skill is tagged
+    expect(parsed?.metadata?.['freebuff-builtin']).toBe('review')
+    expect(parsed?.metadata?.hermes).toMatchObject({ category: 'productivity' })
+  })
+
+  test('clamps an over-long description instead of rejecting the skill', () => {
+    const description = 'x'.repeat(SKILL_DESCRIPTION_MAX_LENGTH + 44)
+    const content = [
+      '---',
+      'name: claude-api',
+      `description: ${description}`,
+      '---',
+      '',
+      '# claude-api',
+    ].join('\n')
+
+    const parsed = parseSkillFileContent(content, {
+      directoryName: 'claude-api',
+      filePath: '/skills/claude-api/SKILL.md',
+    })
+
+    expect(parsed?.description).toHaveLength(SKILL_DESCRIPTION_MAX_LENGTH)
+    // the body is untouched; only the discovery blurb is shortened
+    expect(parsed?.content).toBe(content)
+  })
+})
+
+/**
+ * Guards the home-directory boundary itself.
+ *
+ * The bug these exist for is invisible from the outside: skills load fine, they
+ * are just the WRONG MACHINE's. Freebuff Cloud embeds this runner in the
+ * freebuff/web server process while the repo lives in a Daytona sandbox, so an
+ * always-on `os.homedir()` search meant every Cloud turn parsed the web
+ * server's `~/.claude/skills` and offered it to the model. Nothing downstream
+ * can tell that apart from working correctly, so it has to be caught here.
+ *
+ * These assert on the RESOLVED SEARCH PATHS rather than on load results, so
+ * they fail even if the home directory happens to be empty on the machine
+ * running the suite.
+ */
+describe('home-directory boundary', () => {
+  const SANDBOX_CWD = '/home/daytona/codebase'
+
+  test('the default search never leaves the project', () => {
+    const dirs = resolveSkillsDirs({ cwd: SANDBOX_CWD })
+
+    expect(dirs).toEqual([
+      path.join(SANDBOX_CWD, '.claude', 'skills'),
+      path.join(SANDBOX_CWD, '.agents', 'skills'),
+    ])
+    expect(dirs.every((dir) => dir.startsWith(SANDBOX_CWD))).toBe(true)
+  })
+
+  test('a home directory is searched only when one is supplied', () => {
+    const withHome = resolveSkillsDirs({
+      cwd: SANDBOX_CWD,
+      homeDir: '/home/webserver',
+    })
+
+    // Home roots come first: lower precedence than the project's.
+    expect(withHome).toEqual([
+      path.join('/home/webserver', '.claude', 'skills'),
+      path.join('/home/webserver', '.agents', 'skills'),
+      path.join(SANDBOX_CWD, '.claude', 'skills'),
+      path.join(SANDBOX_CWD, '.agents', 'skills'),
+    ])
+  })
+
+  test('an explicit skillsPath is the whole search, home or not', () => {
+    expect(
+      resolveSkillsDirs({
+        cwd: SANDBOX_CWD,
+        skillsPath: '/explicit/skills',
+        homeDir: '/home/webserver',
+      }),
+    ).toEqual(['/explicit/skills'])
+  })
+
+  test('a server-embedded run cannot reach the home directory', async () => {
+    // A real home containing a real, valid skill, reached the way the runtime
+    // reaches it — so this fails loudly if the fallback ever returns.
+    const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'skills-home-guard-'))
+    const fakeHome = path.join(tempRoot, 'home')
+    const sandboxCwd = path.join(tempRoot, 'not-the-repo')
+    mkdirSync(fakeHome, { recursive: true })
+    mkdirSync(sandboxCwd, { recursive: true })
+    writeSkill({
+      skillsRoot: path.join(fakeHome, '.claude', 'skills'),
+      skillDirName: 'server-side-skill',
+    })
+
+    const homedirSpy = spyOn(os, 'homedir').mockReturnValue(fakeHome)
+    try {
+      // What a server-embedded runner does: a cwd that is not its own repo,
+      // and no statement that this process belongs to any user.
+      expect(await loadSkills({ cwd: sandboxCwd })).toEqual({})
+
+      // The same call from a process that IS the user's finds it — without
+      // this the assertion above could pass for the wrong reason (a bad seed).
+      expect(
+        Object.keys(
+          await loadSkills({ cwd: sandboxCwd, includeHomeSkills: true }),
+        ),
+      ).toEqual(['server-side-skill'])
+    } finally {
+      homedirSpy.mockRestore()
+      rmSync(tempRoot, { recursive: true, force: true })
+    }
   })
 })

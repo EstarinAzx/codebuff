@@ -166,16 +166,17 @@ export interface GlobParams {
  * Use the Gravity Index tool discovery and install API.
  */
 export interface GravityIndexParams {
-  /** Which Gravity Index operation to perform. search: recommend a provider; browse: list catalog services; list_categories: list categories with counts; get_service: full detail for a known slug; report_integration: report a completed integration. */
+  /** Which Gravity Index operation to perform. search: recommend a provider; browse: list catalog services; list_categories: list categories with counts; get_service: full detail for a known slug; provision: create the account for the user and receive credentials; report_integration: report a completed integration. */
   action:
     | 'search'
     | 'browse'
     | 'list_categories'
     | 'get_service'
+    | 'provision'
     | 'report_integration'
   /** For action "search": what the user needs, including stack, constraints, and required capabilities. */
   query?: string
-  /** For action "search": continue a previous search. For action "report_integration": the search_id from the earlier search result (required). */
+  /** For action "search": continue a previous search. For actions "provision" and "report_integration": the search_id from the earlier search result (required). */
   search_id?: string
   /** For action "search": optional structured JSON context about the project, stack, or constraints. */
   context?: Record<string, any>
@@ -183,10 +184,12 @@ export interface GravityIndexParams {
   category?: string
   /** For action "browse": optional keyword filter, e.g. sendgrid or postgres. */
   q?: string
-  /** For action "get_service": service slug, e.g. supabase, stripe, sendgrid (required). */
+  /** For actions "get_service" and "provision": service slug, e.g. supabase, stripe, sendgrid (required). */
   slug?: string
   /** For action "report_integration": slug of the service that was actually integrated (required). */
   integrated_slug?: string
+  /** For action "provision": must be true, and only after the user has explicitly approved creating an account on this service (required). */
+  user_consent?: true
 }
 
 /**
@@ -242,12 +245,12 @@ export interface ReadDocsParams {
   libraryTitle: string
   /** Specific topic to focus on (e.g., "routing", "hooks", "authentication") */
   topic: string
-  /** Optional maximum number of tokens to return. Defaults to 20000. Values less than 10000 are automatically increased to 10000. */
+  /** Optional maximum number of tokens to return. Defaults to 10000. */
   max_tokens?: number
 }
 
 /**
- * Read the multiple files from disk and return their contents. Use this tool to read as many files as would be helpful to answer the user's request.
+ * Read multiple files from disk. Returned file content shares a 20,000 estimated-token limit and a 100,000-character hard limit, so prefer the smallest relevant set.
  */
 export interface ReadFilesParams {
   /** List of file paths to read. */
@@ -370,7 +373,7 @@ export interface StrReplaceParams {
 export interface SuggestFollowupsParams {
   /** List of suggested followup prompts the user can click to send */
   followups: {
-    /** The full prompt text to send as a user message when clicked */
+    /** The prompt text to send as a user message when clicked. Keep it short and goal-oriented — one sentence naming the outcome, not the steps to get there */
     prompt: string
     /** Short display label for the card (defaults to truncated prompt if not provided) */
     label?: string
