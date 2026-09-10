@@ -1,44 +1,38 @@
 ---
 type: active-work
-project: CBM-01
+project: RD-X-96
 updated: 2026-09-10
-tags: [context, active-work, release]
+tags: [context, active-work, branding]
 ---
 
 # Active Work
 
-_Last updated: 2026-09-10 by GPT-6 Astra (auto)_
-_Release source: 3f0d9c252070a5c962d5d230079685e91731909e_
-
 ## Current focus
 
-**CBM-01 v1.5.0 is shipped and verified.** [GitHub](https://github.com/EstarinAzx/codebuff-modded/releases/tag/v1.5.0) has Windows x64, Linux x64, Linux arm64 and SHA256SUMS assets; [npm](https://www.npmjs.com/package/codebuff-mod/v/1.5.0) latest is 1.5.0. The global `cbm` is updated and reports 1.5.0. No active implementation or release task remains.
+RD-X-96 **v1.5.1 release is in progress** on `modded`. The user authorized publication and requested the live npm authentication links when needed. The release includes the compact display name, `rdx` command, hot-pink/cyan palette, transparent canvas and removal of the duplicate label beside the large banner. GitHub assets must be published and verified before npm.
 
 ## State
 
-- **Done:** reviewed CBM-01 identity, Ghostline design, animated violet banner and responsive picker fixes; versioned source, builds, GitHub publication, npm publication and global installation.
-- **Verified:** common/sdk/cli typechecks; 67 focused release tests; Freebuff 8 pass / 6 expected skips; shared attribution 5 pass; runtime attribution 2 pass / 15 unrelated cases filtered. Archive headers, member hashes, executable modes and public asset digests match. Independently extracted Windows help/version reports CBM-01 1.5.0.
-- **Published verification:** npm's public tarball matches the prepared package byte-for-byte and latest is 1.5.0. The installed launcher fetched the public Windows archive; executable and WASM hashes match the verified build. Global `cbm --version` and `--help` pass.
-- **Preserved:** providers.json, codex-oauth.json, grok-oauth.json and credentials.json match their pre-release hashes. Native npm login and publishing approval completed; account/package security and permanent TLS settings were not changed.
-- **Run:** `cbm`. The source development `cli/bin/codebuff-mod.exe` still reports 1.4.1 because release builds used `C:/Users/S.D/.traycer/worktrees/estarinazx__codebuff-modded/release-v1-5-0`; use the updated global command for the shipped build.
-- **Evidence:** this epic's `artifacts/cbm-01-release-1-5-0/index.md` owns asset hashes, npm integrity, commands and limits. Local build record is `cli/dist-binaries/1.5.0/build-record.json`.
-- **Branch protection:** peeled `v1.5.0` is `3f0d9c252070a5c962d5d230079685e91731909e`. `main` remains `88c4df13a` with the same tree as local `upstream/main`. Subsequent handoff commits do not move the release tag.
+- **Latest follow-up:** removed the redundant small label from the full banner; compact and text fallbacks remain. All 14 branding/rendering tests pass (297 assertions). The preview uses a new filename so the existing running session is preserved.
+- **Implemented:** shared display identity, full/compact animated banner, help/title/export/callback copy, bundled fork-agent identity, launcher messages and docs; `rdx` bin alias and primary command; hot-pink identity/headings and cyan reply borders/code accents in both themes, with the transparent canvas retained.
+- **Compatibility:** package/download/storage names remain `codebuff-mod`; `cbm` and `codebuff-mod` remain aliases. Provider/auth logic, routing IDs, animation gates, theme overrides and Freebuff are preserved.
+- **Verified:** 26 focused branding/Ghostline/export tests pass (332 assertions); Freebuff mode has 20 pass, 6 expected skips; CLI typecheck passes. Native frames cover dark/light, wide/narrow/short layouts, menus, selected input, animation and the project picker.
+- **Review:** independent review found one P3 banner-glyph alignment issue; the `6` outline was corrected and the 26 focused tests passed again. This epic's `artifacts/rd-x-96-review/index.md` records the original finding.
+- **Preview:** `cli/bin/rdx-preview.exe`, version `1.5.0-rdx-dev`, built with `bun ./scripts/build-binary.ts rdx-preview 1.5.0-rdx-dev` from `cli/`. Help identifies RD-X-96 and `Usage: rdx`. The sibling `tree-sitter.wasm` is required. Global `rdx` has not been installed.
+- **Evidence:** this epic's `artifacts/rd-x-96/index.md` owns confirmed scope and links native renderer captures.
 
-## Pick up here
+## Next
 
-No active work. The release and old implementation relay are complete; start from the user's next task. Before any future release, read `MERGE-STRATEGY.md` and use a new version. Before upstream integration, preserve the CBM-01/Ghostline seams and the upstream-tree mirror `main`.
+Finish v1.5.1 checks and isolated builds, publish verified GitHub assets, then publish npm through its native approval flow. Supply the user the exact live npm URL if authentication is requested. Verify public downloads and the installed `rdx` command, then refresh this handoff. The completed CBM-01 implementation relay must not restart. [MERGE-STRATEGY.md](../MERGE-STRATEGY.md) owns publication ordering.
 
-## Recent context
+## Published baseline and limits
 
-- Exact display name: **CBM-01**, zero and no spaces. The user selected **C: Ghostline** and explicitly requested restoring animation. Distribution names and original notices remain compatible.
-- The three-leg implementation relay is complete; do not restart it. [Ticket 03](../docs/issues/03-cbm-01-integration.md) and this epic's banner review hold earlier verification and rollback evidence.
-- Linux binaries are cross-built and format-checked, not runtime-tested. Live interactive terminal acceptance and physical limited-color hardware remain unverified. Existing broad Windows/runtime-schema failures are documented and not waived.
-- Existing process-local trust bundle: `C:/Users/S.D/AppData/Local/Temp/codebuff-windows-trust.pem`. Preserve TLS verification and permanent settings. Private provider fingerprints are outside the repository; no credential content is in release evidence.
-- Feature/release worktrees and native renderer evidence are retained. `.codeboarding/` belongs to the user and remains untracked.
+CBM-01 v1.5.0 remains the published and globally installed baseline, at release source `3f0d9c252070a5c962d5d230079685e91731909e`. This epic's `artifacts/cbm-01-release-1-5-0/index.md` owns its asset hashes, npm integrity and installed-binary verification. Those completed release facts do not imply this local rename is published.
+
+No live provider request, profile mutation or global installation was performed for this update. Native component renders and Windows help/version smoke are verified; live interactive terminal acceptance and physical limited-color hardware remain unverified because tmux is unavailable here. `.codeboarding/` remains user-owned and untracked. `main` remains the upstream-tree mirror.
 
 ## Related
 
 - [[overview]]
 - [[decisions]]
-- [[gotchas]]
 - [[pick-up]]

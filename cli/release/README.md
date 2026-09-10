@@ -1,6 +1,6 @@
-# CBM-01
+# RD-X-96
 
-CBM-01 is a standalone coding assistant for your terminal. Connect your own API-key or subscription provider and work with your chosen model.
+RD-X-96 is a standalone coding assistant for your terminal. Connect your own API-key or subscription provider and work with your chosen model.
 
 Fork source: https://github.com/EstarinAzx/codebuff-modded
 
@@ -16,7 +16,7 @@ npm install -g codebuff-mod
 
 ```bash
 cd ~/my-project
-cbm           # or: codebuff-mod
+rdx           # aliases: cbm, codebuff-mod
 ```
 
 Inside the CLI:
@@ -42,7 +42,7 @@ Presets:
 | `grok` | grok-4.6 | SuperGrok subscription; `/providers:add grok [name]`, no API key |
 | `custom-openai` | (yours) | Any OpenAI-compatible endpoint — needs `<baseUrl>` arg |
 
-Then run any coding task. CBM-01 uses the model from your active profile and sends requests directly to your provider.
+Then run any coding task. RD-X-96 uses the model from your active profile and sends requests directly to your provider.
 
 ### Grok subscription login
 

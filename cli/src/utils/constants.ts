@@ -9,8 +9,8 @@ import { getCliEnv } from './env'
 export const IS_FREEBUFF = getCliEnv().FREEBUFF_MODE === 'true'
 
 // PORT: display identity only; package, protocol, and storage names stay compatible.
-export const DISPLAY_NAME = IS_FREEBUFF ? 'Freebuff' : 'CBM-01'
-export const CLI_COMMAND = IS_FREEBUFF ? 'freebuff' : 'cbm'
+export const DISPLAY_NAME = IS_FREEBUFF ? 'Freebuff' : 'RD-X-96'
+export const CLI_COMMAND = IS_FREEBUFF ? 'freebuff' : 'rdx'
 
 /** Message shown when the user ends a freebuff session early. */
 export const END_SESSION_MESSAGE =

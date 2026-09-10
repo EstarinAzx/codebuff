@@ -427,7 +427,7 @@ async function downloadBinary(version) {
   }
 
   term.clearLine()
-  console.log('Download complete! Starting CBM-01...')
+  console.log('Download complete! Starting RD-X-96...')
 }
 
 async function ensureBinaryExists() {

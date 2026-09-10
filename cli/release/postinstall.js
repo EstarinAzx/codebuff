@@ -23,13 +23,13 @@ for (const name of staleBinaries) {
 
 // Print welcome message
 console.log('\n');
-console.log('🎉 CBM-01 installed.');
+console.log('🎉 RD-X-96 installed.');
 console.log('\n');
 console.log('BYOK fork — bring your own API key.');
 console.log('\n');
 console.log('Quick start:');
 console.log('  1. cd to your project directory');
-console.log('  2. Run: cbm');
+console.log('  2. Run: rdx');
 console.log('  3. In the CLI: /providers:add <preset> <apiKey>');
 console.log('     Presets: openai, anthropic, openrouter, opencode-go, deepseek, gemini,');
 console.log('              mistral, together, groq, custom-openai');

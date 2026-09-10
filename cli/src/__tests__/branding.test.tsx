@@ -17,7 +17,7 @@ import { callbackPageHtml } from '../utils/chatgpt-oauth'
 import { bundledAgents } from '../agents/bundled-agents.generated'
 import { getToolSet } from '../../../packages/agent-runtime/src/tools/prompts'
 
-const name = IS_FREEBUFF ? 'Freebuff' : 'CBM-01'
+const name = IS_FREEBUFF ? 'Freebuff' : 'RD-X-96'
 
 describe('shipped product identity', () => {
   test('help introduces the product using its working command', () => {
@@ -35,7 +35,7 @@ describe('shipped product identity', () => {
     expect(result.exitCode).toBe(0)
     expect(result.stdout.toString()).toContain(name)
     expect(result.stdout.toString()).toContain(
-      `Usage: ${IS_FREEBUFF ? 'freebuff' : 'cbm'} `,
+      `Usage: ${IS_FREEBUFF ? 'freebuff' : 'rdx'} `,
     )
   })
 
@@ -60,12 +60,12 @@ describe('shipped product identity', () => {
     expect(error).not.toContain('<script>')
   })
 
-  test('bundled fork agents introduce CBM-01 while keeping their routing IDs', () => {
+  test('bundled fork agents introduce RD-X-96 while keeping their routing IDs', () => {
     for (const id of ['mod-default', 'mod-lite', 'mod-max', 'mod-plan']) {
       const agent = bundledAgents[id]
       expect(agent.id).toBe(id)
-      expect(agent.displayName).toStartWith('CBM-01 ')
-      expect(agent.systemPrompt).toContain('CBM-01')
+      expect(agent.displayName).toStartWith('RD-X-96 ')
+      expect(agent.systemPrompt).toContain('RD-X-96')
     }
   })
 
@@ -103,7 +103,7 @@ describe('shipped product identity', () => {
     ])
   })
 
-  test('postinstall welcomes users to CBM-01 and preserves binary cleanup names', () => {
+  test('postinstall welcomes users to RD-X-96 and preserves binary cleanup names', () => {
     const messages: string[] = []
     const removed: string[] = []
     // Execute the actual lifecycle script without touching an installed CLI.
@@ -126,8 +126,8 @@ describe('shipped product identity', () => {
         console: { log: (line: string) => messages.push(line) },
       },
     )
-    expect(messages.join('\n')).toContain('CBM-01 installed.')
-    expect(messages.join('\n')).toContain('Run: cbm')
+    expect(messages.join('\n')).toContain('RD-X-96 installed.')
+    expect(messages.join('\n')).toContain('Run: rdx')
     expect(removed).toEqual(['codebuff.exe', 'codebuff-mod.exe'])
   })
 
@@ -156,7 +156,10 @@ describe('shipped product identity', () => {
         flushSync(() => root.render(<Logo />))
         await setup.renderOnce()
         const frame = setup.captureCharFrame()
-        if (!IS_FREEBUFF) expect(frame).toContain('CBM-01')
+        if (!IS_FREEBUFF) {
+          if (art === LOGO) expect(frame).not.toContain('RD-X-96')
+          else expect(frame).toContain('RD-X-96')
+        }
         if (art) {
           expect(textBlock).toBe(art.split('\n').filter(Boolean).join('\n'))
           for (const line of textBlock.split('\n'))

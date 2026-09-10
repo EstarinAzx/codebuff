@@ -5,9 +5,9 @@ updated: 2026-09-10
 tags: [moc, codebuff, llm-proxy, byok]
 ---
 
-# CBM-01 (fork) — Map
+# RD-X-96 (fork) — Map
 
-The fork is **CBM-01** (zero, no spaces) with user-selected **C: Ghostline** and an animated violet banner. **v1.5.0 is published on [GitHub](https://github.com/EstarinAzx/codebuff-modded/releases/tag/v1.5.0) and [npm](https://www.npmjs.com/package/codebuff-mod/v/1.5.0); the installed global `cbm` is verified at 1.5.0.** See [[active-work]] for release evidence and limits. [Spec](../docs/prd.md), [selected design](../DESIGN.md), [HTML comparison](../docs/design/cbm-01-options.html), and [workflow](../docs/design/cbm-01-workflow.md). Existing distribution identifiers below remain compatibility facts.
+Current source is **RD-X-96** (no spaces), launched with `rdx`, with user-selected **C: Ghostline**, an animated hot-pink banner and cyan assistant reply frames. The user supplied this replacement palette and requested no background. `cbm` and `codebuff-mod` remain launcher aliases. This update is not released; the published and globally installed v1.5.0 remains CBM-01. See [[active-work]] for local verification and preview instructions. [Product](../PRODUCT.md), [selected design](../DESIGN.md), [original spec](../docs/prd.md), and [workflow](../docs/design/cbm-01-workflow.md). Existing distribution identifiers below remain compatibility facts.
 
 Upstream Codebuff is a composable coding-agent monorepo where a hosted backend proxies LLM requests to upstream providers and bills users in credits via BigQuery + Stripe. CLI is a TUI built on OpenTUI + React. Also ships `freebuff`, the free tier.
 
@@ -22,7 +22,7 @@ Upstream is `CodebuffAI/codebuff`. The fork was renamed `EstarinAzx/codebuff` �
 ## Map
 
 - [[pick-up]] — the next session's handoff
-- [[happy-path]] — intended CBM-01 coding journey
+- [[happy-path]] — intended coding journey
 - [[stack]] — tech, build commands, workspaces
 - [[active-work]] — what's in flight on the `modded` branch
 - [[decisions]] — rationale for fork-local edits

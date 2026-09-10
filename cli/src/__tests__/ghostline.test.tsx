@@ -41,7 +41,7 @@ test.skipIf(IS_FREEBUFF)('Ghostline keeps text readable on base, input, and sele
   for (const theme of Object.values(chatThemes)) {
     const palette = createMarkdownPalette(theme)
     for (const bg of [theme.agentContentBg, theme.surface, theme.surfaceHover]) {
-      for (const fg of [theme.foreground, theme.muted, theme.primary, theme.warning, theme.error, theme.success]) {
+      for (const fg of [theme.foreground, theme.muted, theme.primary, theme.info, theme.link, theme.warning, theme.error, theme.success]) {
         expect(contrast(fg, bg)).toBeGreaterThanOrEqual(4.5)
       }
     }
@@ -87,7 +87,10 @@ test.skipIf(IS_FREEBUFF)('renderer keeps work, menus and compact input visible a
             const rows = plain.split('\n')
             expect(plain).toContain(state === 'input' ? 'Inspect the input renderer' : 'Enter a task, or / for commands')
             if (state === 'empty') {
-              expect(plain).toContain('CBM-01')
+              if (width === 120) {
+                expect(plain).toContain('██████╗ ██████╗')
+                expect(plain).not.toContain('RD-X-96')
+              } else expect(plain).toContain('RD-X-96')
               const inputRow = rows.findIndex((line) => line.includes('Enter a task'))
               expect(inputRow).toBe(height - (height < 20 ? 1 : 2))
             }
@@ -96,6 +99,21 @@ test.skipIf(IS_FREEBUFF)('renderer keeps work, menus and compact input visible a
               expect(plain).toContain('/providers')
             }
             if (state === 'active') expect(plain).toContain('Esc')
+            if (width === 120 && (state === 'active' || state === 'providers')) {
+              const spans = setup.captureSpans().lines.flatMap((line) => line.spans)
+              const border = spans.find((span) => span.text.includes('╭'))!
+              expect(border).toBeDefined()
+              const color = '#' + border.fg.toInts().slice(0, 3).map((c) => c.toString(16).padStart(2, '0')).join('')
+              expect(contrast(color, theme.agentContentBg)).toBeGreaterThanOrEqual(3)
+              expect(color).toBe(theme.link)
+              if (state === 'active') {
+                for (const [label, expected] of [['Changes ready', theme.primary], ['rdx --help', theme.link]]) {
+                  const span = spans.find((span) => span.text.includes(label))!
+                  expect(span).toBeDefined()
+                  expect('#' + span.fg.toInts().slice(0, 3).map((c) => c.toString(16).padStart(2, '0')).join('')).toBe(expected)
+                }
+              }
+            }
             if (state === 'feedback') expect(plain).toContain('Request failed.')
             await saveFrame(`${theme.name}-${width}x${height}-${state}`, setup.captureSpans(), plain, theme.agentContentBg)
             if (state === 'input') {
@@ -136,7 +154,7 @@ test('limited-color terminals keep a theme-appropriate cursor fallback', () => {
     console.log(JSON.stringify(['dark', 'light'].map(name => getLogoAccentColor(name))))
   `], { cwd: path.resolve(import.meta.dir, '../..'), env: { ...process.env, TERM_PROGRAM: 'Apple_Terminal' } })
   expect(result.exitCode).toBe(0)
-  expect(JSON.parse(result.stdout.toString().trim())).toEqual(IS_FREEBUFF ? ['lime', 'green'] : ['fuchsia', 'purple'])
+  expect(JSON.parse(result.stdout.toString().trim())).toEqual(IS_FREEBUFF ? ['lime', 'green'] : ['red', 'maroon'])
 })
 
 test.skipIf(IS_FREEBUFF)('filled choices, actions and agent headers keep readable foregrounds in both themes', async () => {
@@ -186,7 +204,10 @@ test.skipIf(IS_FREEBUFF)('startup restores the banner, fits small terminals, and
         await setup.renderOnce()
         const lines = setup.captureCharFrame().split('\n').filter((line) => line.trim())
         expect(lines.length).toBe(occupiedRows)
-        expect(lines.join('\n')).toContain('CBM-01')
+        if (width === 120) {
+          expect(lines.join('\n')).toContain('██████╗ ██████╗')
+          expect(lines.join('\n')).not.toContain('RD-X-96')
+        } else expect(lines.join('\n')).toContain('RD-X-96')
         expect(lines.join('\n')).toContain('ghostline')
         const spans = setup.captureSpans().lines.flatMap((line) => line.spans)
         expect(spans.some((span) => span.text.trim() && span.fg.toInts().slice(0, 3).join(',') === '221,187,255')).toBe(true)

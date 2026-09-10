@@ -28,7 +28,7 @@ export function GhostlineFixture({ width, height, state, focused = true }: {
     { id: 'task', variant: 'user', content: 'Inspect the input renderer.', timestamp: '12:00' },
     { id: 'reply', variant: 'ai', content: '', timestamp: '12:00', blocks: [
       { type: 'tool', toolCallId: 'read', toolName: 'read_files', input: { paths: ['cli/src/components/chat-input-bar.tsx'] }, output: 'Read 540 lines.', isCollapsed: true },
-      { type: 'text', content: 'The composer now leaves more room for your work. Keyboard navigation remains available.' },
+      { type: 'text', content: '# Changes ready\nThe composer leaves more room for your work. Use `rdx --help` for command help.' },
     ] },
   ] : state === 'providers' ? [
     { id: 'providers', variant: 'ai', timestamp: '12:00', content: 'BYOK provider profiles (active marked with *):\n  * local-profile  Personal subscription  (codex)\nCurrent model: gpt-5.5-project-review-long-model-label\nUse /model <id> to change.' },

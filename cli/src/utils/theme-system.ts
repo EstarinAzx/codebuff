@@ -102,7 +102,7 @@ export function getLogoAccentColor(
 ): string {
   const isTruecolor = supportsTruecolor(env)
   if (!IS_FREEBUFF) {
-    return isTruecolor ? chatThemes[themeName].primary : themeName === 'dark' ? 'fuchsia' : 'purple'
+    return isTruecolor ? chatThemes[themeName].primary : themeName === 'dark' ? 'red' : 'maroon'
   }
   // Freebuff's primary green and its existing ANSI fallbacks.
   if (themeName === 'dark') {
@@ -968,15 +968,16 @@ const DEFAULT_CHAT_THEMES: Record<ThemeName, ChatTheme> = {
 }
 
 // PORT: Ghostline uses the existing semantic roles. Freebuff retains its palette.
-// OKLCH anchors and the terminal conversion are recorded in DESIGN.md.
+// Reference palette and terminal color roles are recorded in DESIGN.md.
 function ghostlineTheme(name: ThemeName): ChatTheme {
   const dark = name === 'dark'
-  const primary = dark ? '#c9b7ff' : '#644b9e'
-  const foreground = dark ? '#eceef5' : '#1f2129'
-  const muted = dark ? '#a6abb8' : '#545864'
+  const primary = dark ? '#ff0055' : '#b8003f'
+  const cyan = dark ? '#00d7e5' : '#006b75'
+  const foreground = dark ? '#cbd1d7' : '#20262d'
+  const muted = dark ? '#8a949e' : '#53616d'
   const base = dark ? '#0b0d13' : '#f7f8fc'
   const surface = dark ? '#13161d' : '#eceef5'
-  const selected = dark ? '#30283e' : '#dfdbed'
+  const selected = dark ? '#14171c' : '#dfe5eb'
   const border = dark ? '#626575' : '#767987'
   return {
     ...DEFAULT_CHAT_THEMES[name],
@@ -989,15 +990,15 @@ function ghostlineTheme(name: ThemeName): ChatTheme {
     surface,
     surfaceHover: selected,
     border,
-    info: primary,
-    link: dark ? '#b4dbef' : '#285f7c',
+    info: cyan,
+    link: cyan,
     directory: muted,
     success: dark ? '#88cfad' : '#226644',
     warning: dark ? '#e5bd80' : '#765018',
     error: dark ? '#f09d9e' : '#9b303b',
-    aiLine: muted,
-    userLine: primary,
-    aiPanelBorder: dark ? '#2f333d' : '#c9cbd5',
+    aiLine: cyan,
+    userLine: cyan,
+    aiPanelBorder: cyan,
     agentToggleHeaderBg: surface,
     agentToggleExpandedBg: selected,
     agentFocusedBg: selected,
@@ -1014,10 +1015,10 @@ function ghostlineTheme(name: ThemeName): ChatTheme {
     markdown: {
       codeBackground: surface,
       codeHeaderFg: muted,
-      inlineCodeFg: primary,
+      inlineCodeFg: cyan,
       codeTextFg: foreground,
-      headingFg: { 1: foreground, 2: foreground, 3: foreground, 4: foreground, 5: foreground, 6: foreground },
-      listBulletFg: muted,
+      headingFg: { 1: primary, 2: primary, 3: primary, 4: primary, 5: primary, 6: primary },
+      listBulletFg: cyan,
       blockquoteBorderFg: border,
       blockquoteTextFg: muted,
       dividerFg: dark ? '#2f333d' : '#c9cbd5',

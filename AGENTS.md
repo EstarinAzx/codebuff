@@ -1,6 +1,6 @@
-# CBM-01
+# RD-X-96
 
-CBM-01 is the standalone coding-agent fork on `modded`. Launch it with `cbm`. Preserve the existing package and provider compatibility while changing product display branding.
+RD-X-96 is the standalone coding-agent fork on `modded`. Launch it with `rdx`; `cbm` remains a compatibility alias. Preserve the existing package and provider compatibility while changing product display branding.
 
 ## Key Technologies
 
@@ -36,7 +36,7 @@ CBM-01 is the standalone coding-agent fork on `modded`. Launch it with `cbm`. Pr
 
 ## Agent skills
 
-For the CBM-01 rebrand, read `docs/prd.md` and `docs/design/cbm-01-workflow.md`. Read `MERGE-STRATEGY.md` before integration or upstream sync; `main` remains the upstream tree mirror and fork work belongs on `modded`.
+For display branding, read `PRODUCT.md`, `DESIGN.md`, and `docs/design/cbm-01-workflow.md`. `docs/prd.md` records the original CBM-01 release scope. Read `MERGE-STRATEGY.md` before integration or upstream sync; `main` remains the upstream tree mirror and fork work belongs on `modded`.
 
 ### Issue tracker
 

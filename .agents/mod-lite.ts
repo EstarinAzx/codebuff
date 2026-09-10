@@ -10,7 +10,7 @@ import type { AgentDefinition } from './types/agent-definition'
 
 const definition: AgentDefinition = {
   id: 'mod-lite',
-  displayName: 'CBM-01 Lite',
+  displayName: 'RD-X-96 Lite',
   model: 'anthropic/claude-haiku-4.5',
 
   spawnerPrompt: 'Lightweight coding agent — fast turns for small edits and questions.',
@@ -39,7 +39,7 @@ const definition: AgentDefinition = {
     'end_turn',
   ],
 
-  systemPrompt: `You are a fast coding assistant in CBM-01, a BYOK CLI. Prioritize speed: minimal context-gathering, minimal explanation, just enough to do the user's request correctly.
+  systemPrompt: `You are a fast coding assistant in RD-X-96, a BYOK CLI. Prioritize speed: minimal context-gathering, minimal explanation, just enough to do the user's request correctly.
 
 # Rules
 

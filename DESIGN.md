@@ -1,55 +1,44 @@
-# CBM-01: Ghostline
+# RD-X-96: reference palette
 
-Selected by the user on 2026-09-10: "Use C: Ghostline for CBM-01." The reference is option C in [the HTML comparison](docs/design/cbm-01-options.html). This is an approved direction; concrete terminal color values and cell spacing are implementation choices subject to verification.
+The user supplied a hot-pink/cyan interface as the color reference, then clarified: “dont need a background”. This supersedes Ghostline's violet colors. Retain the existing Ghostline layout, animated RD-X-96 banner and responsive fallbacks.
 
 ## Purpose and scene
 
-The developer is focused on a coding task in a terminal. The selected dark reference uses quiet violet on dim neutral surfaces; the existing light theme remains available for bright environments and the user's automatic theme preference. The primary action is entering a task and inspecting its output.
+A developer reads coding output in their own terminal. Use hot pink for identity and headings, cyan for reply frames and code references, and light-gray body text. The terminal owns the canvas; no background image or forced opaque app background is added. Keep automatic and light themes.
 
 ## Visual contract
 
-| Ingredient from option C | Terminal implementation |
+| Role | Implementation |
 | --- | --- |
-| Animated CBM-01 banner | Restore the existing shimmer in Ghostline violet when the art fits; use smaller art or a one-line wordmark when width/height is limited; preserve usable project/login states |
-| One reading column | Keep output and input aligned; use the existing content-width/layout behavior; no new side rail |
-| Thin contextual status row | Keep real project/provider/model/mode information in existing compact status/header affordances; wrap or shorten secondary text on narrow terminals |
-| Quiet violet identity | Use violet for primary focus/selection/identity, neutral inactive surfaces, and labeled semantic warning/error/success colors |
-| Restrained borders | Reduce decorative contrast in conversation/input chrome without hiding focus, selection, or actionable boundaries |
-| Calm rhythm | Reduce wasted startup rows and let output lead; preserve existing motion preference and keyboard behavior |
+| Identity and focus | Hot-pink banner sheen, compact wordmark, focused input and primary actions |
+| Reading accents | Cyan assistant reply border, user/agent markers, links, inline code and list bullets |
+| Prose | Light-gray body text and quieter gray secondary text |
+| Layout | Existing single reading column, compact composer and measured full/small/text banner fallbacks; the large banner has no duplicate small text label |
+| Motion | Existing shimmer and animation/visibility preferences |
+| Canvas | Transparent; preserve the input's existing terminal-background repaint behavior |
 
-The user explicitly requested the animated banner after inspecting the first build: "Bring back the animated CBM-01 banner with Ghostline’s violet colors." This supersedes the earlier static-header interpretation. Reuse the existing animation and visibility/focus gating. The compact composer, other Ghostline styling, and terminal font settings stay as implemented. The HTML's sample profiles/status labels do not authorize new providers or fake live indicators.
+## Terminal palette
 
-## Color anchor
-
-The selected HTML uses these OKLCH roles: accent `82% 0.105 295`, foreground `95% 0.01 270`, muted `74% 0.02 270`, base `16% 0.012 270`, surface `20% 0.016 270`, border `32% 0.019 270`, secondary accent `87% 0.05 230`. Convert to the terminal's supported color representation, rather than passing unsupported CSS color strings.
-
-Keep a contrasting violet light-theme counterpart, terminal color fallbacks, and user overrides. Preserve the existing terminal-background integration and opaque repaint behavior where required to avoid stale text. Check actual foreground/background pairs; the preview's decorative border contrast is not an accessibility target for focus or input controls.
-
-### Implemented terminal values
-
-The dark anchors are converted from OKLCH to sRGB, clipped to the sRGB gamut and rounded to 8-bit channels. In particular, the accent's blue channel reaches the gamut boundary. OpenTUI receives supported hex values, not CSS OKLCH strings.
+The supplied image guides the hue relationships rather than an exact pixel match. OpenTUI receives supported sRGB hex values. Light mode uses darker pink and cyan to retain readable contrast.
 
 | Role | Dark | Light |
-| --- | --- | --- |
-| Focus / identity | `#c9b7ff` | `#644b9e` |
-| Foreground | `#eceef5` | `#1f2129` |
-| Muted text | `#a6abb8` | `#545864` |
-| Opaque base fallback | `#0b0d13` | `#f7f8fc` |
-| Surface | `#13161d` | `#eceef5` |
-| Selection surface | `#30283e` | `#dfdbed` |
-| Decorative divider / prose frame | `#2f333d` | `#c9cbd5` |
+| --- | --- |
+| Primary / headings | `#ff0055` | `#b8003f` |
+| Cyan / reply frame / links / inline code | `#00d7e5` | `#006b75` |
+| Foreground | `#cbd1d7` | `#20262d` |
+| Muted text | `#8a949e` | `#53616d` |
+| Existing opaque repaint fallback | `#0b0d13` | `#f7f8fc` |
+| Existing control/code surface | `#13161d` | `#eceef5` |
+| Selection surface | `#14171c` | `#dfe5eb` |
+| Decorative divider | `#2f333d` | `#c9cbd5` |
 | Actionable inactive border | `#626575` | `#767987` |
 
-The canvas remains terminal-transparent. The input uses the reported terminal background when available, otherwise the opaque base above; this retains repainting of cleared text. Character selection uses the accent as background and the opaque base as foreground. Label text, muted text, accents and semantic feedback are checked against base, surface and selected surfaces at 4.5:1 or better. Actual captured selected-character foreground/background pairs are checked too. Limited-color cursor fallbacks are `fuchsia` in dark mode and `purple` in light mode; OpenTUI continues handling terminal color capability negotiation. Freebuff keeps its existing palette and fallbacks. User color overrides still apply through the existing theme builder.
+Keep labeled warning/error/success colors. Body text, accents and semantic feedback must maintain at least 4.5:1 contrast on base, control and selected surfaces. The actual reply border must maintain at least 3:1 against the fallback base. Limited-color logo/cursor fallbacks are `red` in dark mode and `maroon` in light mode. User overrides still apply through the existing theme builder; Freebuff retains its own palette.
 
-## States and scope
+The transparent canvas and reported terminal-background input fill are unchanged. The opaque fallback above is only for surfaces that already require repainting to erase stale text, not a new app-wide background.
 
-Apply this to the actual CBM-01 home/start screen, active conversation and tools, focused/unfocused input, provider/model controls, and warning/error/success messages. Keep the separate Freebuff build's identity and theme behavior. No provider/auth changes belong here.
+## Evidence and scope
 
-Check dark and light, truecolor and fallback, wide and narrow, short height, empty and active output, and a long project/model label. Preserve input navigation, interruption, menus, and status meaning. Reuse the existing semantic theme and logo seams before adding fields or components.
+Use real OpenTUI frames at wide, narrow and short sizes in both themes. Verify heading, inline-code and reply-border colors, text contrast, selected input, menus, banner animation and fallback behavior. Preserve keyboard operation, provider/auth state and the separate Freebuff build.
 
-## Evidence
-
-Use real OpenTUI renderer frames and relevant existing tests. Capture inspectable representative terminal frames with color where the tooling supports it; a hand-drawn HTML page alone does not verify the terminal implementation. Record any inability to run an interactive terminal rather than claiming it passed.
-
-No new raster-probe round is needed: the user already selected the supplied HTML direction. This approval does not create a gauntlet bar.
+The user's image is the color reference; its wording and layout are not product requirements. The original Ghostline selection remains recorded in [the request history](docs/design/cbm-01-request.md). No new image-generation probe is needed and no gauntlet bar is implied.

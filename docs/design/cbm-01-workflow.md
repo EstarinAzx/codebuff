@@ -2,6 +2,8 @@
 
 The [spec](../prd.md) owns scope and the [ticket queue](../prd.md#work-queue) owns progress. This file owns execution order. [MERGE-STRATEGY.md](../../MERGE-STRATEGY.md) remains the authority for upstream sync and release mechanics.
 
+The original CBM-01 queue and relay are complete. Current identity is RD-X-96, launched with `rdx` (`cbm` remains an alias). Preserve the current [product](../../PRODUCT.md) and [design](../../DESIGN.md) through later work; the execution sequence below records the completed original initiative.
+
 ## Execute
 
 1. Rehydrate `.context/pick-up.md`, the spec, and the queue. Re-read `.claude/vibe.md` for unresolved decisions. Respect the latest user correction: **CBM-01**.
@@ -17,7 +19,7 @@ The [spec](../prd.md) owns scope and the [ticket queue](../prd.md#work-queue) ow
 
 | Surface | Preserve on an upstream sync | Verification |
 | --- | --- | --- |
-| Display identity and logos | CBM-01 shared display string; measured full/small art widths and short-height fallback | Branding regression and title/help/logo render checks |
+| Display identity and logos | RD-X-96 shared display string, `rdx` primary command and retained aliases; measured full/small art widths and short-height fallback | Branding regression and title/help/logo render checks |
 | Theme | User-selected direction through existing dark/light semantic tokens; user overrides and color fallbacks | Theme tests plus wide/narrow/light/dark smoke |
 | Header and visible messages | Fork display identity while retaining upstream behavior | Audit user-owned strings, exports, callback copy, and launcher messages |
 | Distribution | Existing package names, aliases, filenames, endpoints and updater ordering until a separate migration | Launcher/build smoke; inspect download construction |

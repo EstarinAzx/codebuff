@@ -5,15 +5,13 @@ updated: 2026-09-10
 
 # Pick up
 
-Read [[overview]] and [[active-work]]. **No active work: CBM-01 v1.5.0 is published on GitHub and npm, and global `cbm` is verified at 1.5.0.** The fixed release source/tag is `3f0d9c252070a5c962d5d230079685e91731909e`. This epic's `artifacts/cbm-01-release-1-5-0/index.md` records assets, package integrity, installed-binary verification and limits. Start from the user's next task; both the release and old implementation relay are complete.
+Read [[active-work]]. Current local work renames CBM-01 to **RD-X-96** (no spaces), promotes **`rdx`** to the primary command, and uses the user's newer hot-pink/cyan reference palette. Pink marks identity/headings, cyan marks reply frames/code, and the terminal canvas remains transparent. The user confirmed the compact name and then explicitly requested `rdx`. `cbm` and `codebuff-mod` remain compatibility aliases; the npm package remains `codebuff-mod`.
 
-Merge: `5cc13014d5d9d54ae49da5451775c0d82329b1fa`. [Ticket 03](../docs/issues/03-cbm-01-integration.md) owns the verification, hashes, review and rollback evidence. All implementation/integration workers are retired; the relay is complete. Do not replay any ticket or restart the stopped run.
+**Release v1.5.1 is authorized and in progress.** The manifests are bumped and release checks pass. Freeze the reviewed source, build and verify all three platform archives in an isolated release worktree, publish GitHub assets, then publish npm. Give the user npm's exact live authentication/approval link if requested by the native flow. This epic's `artifacts/rd-x-96-release-1-5-1/index.md` owns release progress.
 
-The user authorized this release and completed npm's native login and publishing approval. Preserve the `codebuff-mod` distribution identity and `cbm` command. Future releases follow the saved order: GitHub archives before npm, then public-asset and installed-version verification. Account security and provider credentials remain intact.
+The current published and globally installed baseline is **CBM-01 v1.5.0**, source/tag `3f0d9c252070a5c962d5d230079685e91731909e`. Its completed release evidence is in `artifacts/cbm-01-release-1-5-0/index.md`. Follow the GitHub-assets-before-npm order in [MERGE-STRATEGY.md](../MERGE-STRATEGY.md); verify registry-direct latest, install the published package, and verify `rdx`/aliases after publication. Preserve account security and provider settings.
 
-The exact display name is **CBM-01**, zero and no spaces. [DESIGN.md](../DESIGN.md) owns Ghostline; [workflow](../docs/design/cbm-01-workflow.md) and [MERGE-STRATEGY.md](../MERGE-STRATEGY.md) protect future syncs. Preserve technical compatibility identifiers, original notices, saved provider state, and the upstream-tree mirror `main`. `.codeboarding/` is user-owned. The feature worktree and its native renderer captures remain available for inspection.
-
-Live interactive terminal acceptance and physical limited-color hardware remain unverified; focused tests, native component renders, typecheck, build and help/version smoke passed.
+The current user contract is in [PRODUCT.md](../PRODUCT.md) and [DESIGN.md](../DESIGN.md). The old CBM-01 ticket queue and implementation relay are complete; do not replay them. Preserve original notices, saved providers/credentials and the upstream-tree mirror `main`. `.codeboarding/` is user-owned.
 
 ## Related
 

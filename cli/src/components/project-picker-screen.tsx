@@ -40,7 +40,7 @@ const LAYOUT = {
   COMPACT_MODE_THRESHOLD: 12,
 
   // Decorative element heights
-  LOGO_HEIGHT: 8, // Existing Freebuff allocation; CBM-01 measures the selected art.
+  LOGO_HEIGHT: 8, // Existing Freebuff allocation; RD-X-96 measures the selected art.
   HELP_TEXT_HEIGHT: 2,
 
   // Spacing constants (used in normal mode)

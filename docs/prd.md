@@ -1,5 +1,7 @@
 # CBM-01 rebrand and terminal redesign
 
+**Later update:** RD-X-96 supersedes the display name and `rdx` becomes the primary command (`cbm` remains an alias). The user's subsequent color reference replaces violet with hot-pink identity/headings and cyan reply frames/code accents while retaining the transparent canvas. [PRODUCT.md](../PRODUCT.md), [DESIGN.md](../DESIGN.md), and [.context/active-work.md](../.context/active-work.md) describe current source. The original v1.5.0 scope and release record below remain historical.
+
 Status: shipped in **[CBM-01 v1.5.0](https://github.com/EstarinAzx/codebuff-modded/releases/tag/v1.5.0)** on GitHub and npm, with global `cbm` verified at 1.5.0. Identity and the user-selected **C: Ghostline** were integrated at `5cc13014d5d9d54ae49da5451775c0d82329b1fa`; the animated-banner follow-up is `954cd024a`, and release source is `3f0d9c252`. The user separately authorized publication with "ok cut the new release". The original rebrand scope below was captured 2026-09-10 against `426480b8c`; ticket 03 holds integration evidence and [.context/active-work.md](../.context/active-work.md) points to the release record.
 
 ## Problem Statement

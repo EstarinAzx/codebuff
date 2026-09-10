@@ -1,15 +1,15 @@
-# CBM-01
+# RD-X-96
 
-CBM-01 is a standalone coding assistant for your terminal. Connect an API-key or subscription provider, then ask it to read, edit, and verify code in your project.
+RD-X-96 is a standalone coding assistant for your terminal. Connect an API-key or subscription provider, then ask it to read, edit, and verify code in your project.
 
-The display name is **CBM-01** (zero, no spaces). The package remains `codebuff-mod`; launch with `cbm`.
+The display name is **RD-X-96** (no spaces). The package remains `codebuff-mod`; launch with `rdx`. Existing `cbm` and `codebuff-mod` commands remain aliases.
 
 ## Install and start
 
 ```sh
 npm install -g codebuff-mod
 cd your-project
-cbm
+rdx
 ```
 
 Inside the CLI, add an API-key provider with `/providers:add <preset> <apiKey>`, or use `/providers:add codex` or `/providers:add grok` for subscription OAuth. Use `/model` to select a model. Existing profiles, credentials, bindings, and commands are preserved.
@@ -30,7 +30,7 @@ bun run dev
 - [Rebrand scope](docs/prd.md) and [work queue](docs/prd.md#work-queue)
 - [Upstream merge strategy](MERGE-STRATEGY.md)
 
-CBM-01 uses the user-selected Ghostline terminal design, with existing provider and distribution compatibility retained.
+RD-X-96 uses the user-selected Ghostline terminal design, with existing provider and distribution compatibility retained.
 
 ## Upstream projects and attribution
 

@@ -376,7 +376,7 @@ Schema carries `oauthProfileId?: string` on every `BYOKProfile`. The `codex` pre
 
 #### `cli/src/types/theme-system.ts` + `cli/src/utils/theme-system.ts` + `cli/src/components/message-block.tsx`
 
-`aiPanelBorder?: string` on `ChatTheme`, using a quiet neutral frame for Ghostline. Fallback in `message-block.tsx`: `theme.aiPanelBorder ?? theme.secondary ?? theme.aiLine ?? theme.foreground`.
+`aiPanelBorder?: string` on `ChatTheme`, using the cyan reply frame from the current palette in DESIGN.md. Fallback in `message-block.tsx`: `theme.aiPanelBorder ?? theme.secondary ?? theme.aiLine ?? theme.foreground`.
 
 **Resolve:** keep the optional field + product defaults + fallback chain. Optional means no upstream test-fixture patching needed. Keep `ghostlineTheme` and the `IS_FREEBUFF` choice in `theme-system.ts`, automatic detection/overrides, and theme-correct opaque input repainting. Preserve inverse label foregrounds on primary-filled buttons, answer choices, and ads: the light Ghostline accent needs a light foreground, not a restored hard-coded black. Agent headers use the quiet collapsed/expanded surface roles. Run the Ghostline renderer check alongside branding after a merge.
 
@@ -388,11 +388,11 @@ Fork pushes the active BYOK profile + bindings at boot (`setActiveByokProfile(..
 
 ### LOW conflict risk
 
-#### CLI display branding and banner art — CBM-01
+#### CLI display branding and banner art — RD-X-96
 
-The new required display identity is **CBM-01**, with zero and no spaces. The 2026-09-10 rebrand is tracked in [docs/prd.md](./docs/prd.md); the previous CODEBUFF - M1 banner and `92` width threshold describe the old implementation, not a merge requirement.
+The current display identity is **RD-X-96**, with no spaces. `rdx` is the primary command; retain `cbm` and `codebuff-mod` aliases in the published launcher's bin map. Package, binary and download names remain `codebuff-mod`. [PRODUCT.md](./PRODUCT.md) and [DESIGN.md](./DESIGN.md) supersede the original CBM-01 scope in [docs/prd.md](./docs/prd.md).
 
-**Resolve:** preserve the fork's display-brand constant and the user-requested animated CBM-01 banner in Ghostline violet. Both products use measured full/small/text art selection with short-height fallback. Keep the existing sheen hook, its animated outline characters, and chat visibility/focus gate. The CBM project picker reserves its measured footer, padding and gaps before recents and banner space; keep the non-shrinking Open button and selected-art height calculation so decoration cannot cover controls. Re-anchor these shared logo/caller seams if upstream moves them; inspect title/help/warnings/exports/callback/launcher copy too.
+**Resolve:** preserve the fork's display-brand constant, hot-pink animated RD-X-96 banner/headings, cyan assistant reply border/code accents, and transparent terminal canvas from [DESIGN.md](./DESIGN.md). Both products use measured full/small/text art selection with short-height fallback. Keep the existing sheen hook, its animated outline characters, and chat visibility/focus gate. The fork's project picker reserves its measured footer, padding and gaps before recents and banner space; keep the non-shrinking Open button and selected-art height calculation so decoration cannot cover controls. Re-anchor these shared logo/caller seams if upstream moves them; inspect title/help/warnings/exports/callback/launcher copy too.
 
 The shared seams are `DISPLAY_NAME` / `CLI_COMMAND` in `cli/src/utils/constants.ts`, `LOGO_VARIANTS` in `use-logo.tsx`, and the banner art in `cli/src/login/constants.ts`. The animated-banner follow-up supersedes the static-header interpretation in `b8e37262f`. Keep `suppressCommitAttribution: true` on the three terminal-capable `mod-default`, `mod-lite`, and `mod-max` roots; shared tool-description defaults remain intact. Branding tests cover the reachable child closure; Ghostline tests cover animated/paused frames and small-terminal fallback.
 
@@ -400,7 +400,7 @@ Keep original notices and truthful package, import, environment, storage, protoc
 
 #### CBM-01 feature integration
 
-Use the isolated `feature/cbm-01` branch from `modded`, followed by a reviewed `--no-ff` merge into `modded` after verification. Planning and baton commits belong on `modded`; the generic ticket-loop default of writing context to `main` must not contaminate the upstream tree mirror. The user selected Ghostline; preserve the resulting compact layout and violet semantic theme from [DESIGN.md](./DESIGN.md) through future syncs. [Workflow and merge checklist](./docs/design/cbm-01-workflow.md).
+The original integration used the isolated `feature/cbm-01` branch from `modded`, followed by a reviewed `--no-ff` merge into `modded` after verification. Planning and baton commits belong on `modded`; the generic ticket-loop default of writing context to `main` must not contaminate the upstream tree mirror. Preserve the compact Ghostline layout and the current palette from [DESIGN.md](./DESIGN.md) through future syncs. [Workflow and merge checklist](./docs/design/cbm-01-workflow.md).
 
 Completed locally on 2026-09-10 at merge `5cc13014d5d9d54ae49da5451775c0d82329b1fa` (source first parent `185b6c37e48a1350709d2770c348d911f2f75321`, feature second parent `4e505bc114b4ac905544e97fcaa0d67d1d81b4b8`). Cold review, integrated source build, CLI typecheck, identity/theme/export/streaming/provider checks and Freebuff branding passed. `main` and its upstream-matching tree were unchanged. [Ticket 03](./docs/issues/03-cbm-01-integration.md) owns exact checks, local binary provenance, limitations, and the pending controller handoff. This is not a release.
 

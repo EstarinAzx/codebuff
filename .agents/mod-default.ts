@@ -17,7 +17,7 @@ import type { AgentDefinition } from './types/agent-definition'
 
 const definition: AgentDefinition = {
   id: 'mod-default',
-  displayName: 'CBM-01 Default',
+  displayName: 'RD-X-96 Default',
   model: 'anthropic/claude-sonnet-4.5',
 
   spawnerPrompt:
@@ -54,7 +54,7 @@ const definition: AgentDefinition = {
 
   spawnableAgents: ['file-picker', 'code-searcher', 'thinker'],
 
-  systemPrompt: `You are the default coding assistant for CBM-01. The user has supplied their own LLM provider credentials (BYOK), so you are running on a single model the user picked — no cost gating, no rate limits beyond what their provider enforces.
+  systemPrompt: `You are the default coding assistant for RD-X-96. The user has supplied their own LLM provider credentials (BYOK), so you are running on a single model the user picked — no cost gating, no rate limits beyond what their provider enforces.
 
 # Conventions
 
