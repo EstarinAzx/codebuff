@@ -5,8 +5,9 @@ partner: gpt-6-astra
 pressure: gpt-6-astra
 pressure_via: traycer-codex-same-model-degraded
 max_defer: 12
-phase: fired
-halted: false
+phase: halted
+halted: true
+halt_reason: needs_visual_direction
 ---
 
 ## Record
@@ -20,7 +21,7 @@ Partner: `2f24a410-0fe3-49d0-8f84-9bc68df5af50`. Pressure: `24d671d1-8b4b-4119-a
 - Exact display name CBM-01. Warrant: "its actually  CBM-01 its 0 not O" @ `docs/design/cbm-01-request.md`; verified as an exact substring. Pressure: STANDS, SAME-MODEL (degraded).
 - Preserve command/provider workflow. Warrant: "Users run `cbm`, add an API-key provider with `/providers:add <preset> <apiKey>`, or use `/providers:add codex` or `/providers:add grok` for subscription OAuth, then select models with `/model`. No codebuff.com account or billing backend is required." @ `.context/overview.md`; exact match verified. Pressure: STANDS, SAME-MODEL (degraded).
 - Preserve credential isolation. Warrant: "Keep Codex and Grok credential stores and reasoning replay isolated." @ `.context/decisions/2026-09-09-grok-subscription.md`; exact match verified within Partner's full quoted line. Pressure: STANDS, SAME-MODEL (degraded).
-- Keep working distribution identity. Warrant: "Fork sets `"name": "codebuff-mod"` and bumps `version` each release." @ `MERGE-STRATEGY.md`; exact match verified. Pressure: STANDS as a compatibility boundary, not a user-approved final distribution name.
+- Keep working distribution identity. Warrant: `"name": "codebuff-mod"` @ `cli/release/package.json`; verified in the actual manifest. The internal CLI workspace is `@codebuff/cli`; the old merge-map sentence conflated it with the launcher and has been corrected. Pressure: STANDS for preserving distribution compatibility, not a user-approved final distribution name.
 - Keep fork commits off main. Warrant: "- One-way flow: `upstream/main` → `origin/main` → `modded`. Never push `modded` commits back into `main`." @ `MERGE-STRATEGY.md`; exact match verified. Pressure: STANDS, SAME-MODEL (degraded).
 - Keep assets-before-npm ordering for any future authorized release. Warrant: "So the **GitHub release with binaries MUST exist before `npm publish`** — publish the launcher first and every `npm i -g codebuff-mod` 404s on the binary download." @ `MERGE-STRATEGY.md`; exact match verified. Pressure: STANDS; this does not authorize a release.
 
@@ -65,3 +66,4 @@ The [spec](../docs/prd.md) owns scope; [workflow](../docs/design/cbm-01-workflow
 - Fired connected Traycer relay N=1 using `.claude/cbm-01-ticket-loop.md`, the repository-local adaptation of preset ticket-loop. Worker `d4ba8833-943a-4764-8257-f3350f223d09`, request `e0764772-1069-44d4-9d31-9cc412a1598a`, leg 1, ticket 01. Control state: `.claude/relay/cbm-01.traycer.json`. Gauntlet is not chained.
 - Leg 1 clarification: new commit footer examples are product output, not original notices. Controller inspected the existing suppression path and directed the worker to reuse it for relevant fork agents, with a regression check and reviewer coverage. The spec owns this implementation decision. Worker verification/review is still pending; no unit is marked complete.
 - Leg 1 controller verification at `31e783fae`: 106 CLI tests, 22 Freebuff checks, 5 common attribution tests, 2 runtime attribution tests, full CLI typecheck, and Windows binary help/version passed. Review approved the code. Final product-introduction/postinstall wording cleanup requested; active request is `53bb3b37-fa82-4750-9ca5-da852f325b97`. Unit acceptance waits for that small follow-up; no visual direction has been selected.
+- Leg 1 accepted at `732e25e98` after copy fix `742127525`. Controller inspected the final diff and reran branding: 7/0 in each product mode. Exactly one unit completed. Relay stopped with `needs_visual_direction`; worker and reviewer archived successfully. Ticket 02 is the next unit after the user's choice, followed by integration ticket 03. No merge, push, release, or palette selection occurred.

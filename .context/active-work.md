@@ -8,7 +8,7 @@ tags: [context, active-work, branding]
 # Active Work
 
 _Last updated: 2026-09-10 by GPT-6 Astra (auto)_
-_Planning based on modded at 426480b8c; rebrand work is not yet integrated._
+_Identity implementation: feature/cbm-01 at 732e25e98; not merged or released._
 
 ## Current focus
 
@@ -19,12 +19,14 @@ Rebrand the standalone fork as **CBM-01** (zero, no spaces), compare cyberpunk d
 - **Done:** baton rehydrated, exact name corrected, source/compatibility audit completed, and eight file warrants plus the correction verified mechanically. Independent same-model Pressure accepted identity-only work and the documented technical-identifier exception.
 - **Done:** [HTML comparison](../docs/design/cbm-01-options.html) offers Neon Circuit, Amber Grid, and Ghostline across three sample screens. All 18 direction/screen/width combinations passed live DOM/layout checks at 1440 and 390 pixels, without horizontal page overflow. Keyboard selection and visible focus outline passed; browser console had no errors. Screenshot capture stalled and was stopped, so screenshot QA is not claimed.
 - **Done:** local spec, tickets, workflow, product context, and merge-map amendment saved. No public issues or release created.
-- **In flight:** ticket 01 identity-only implementation dispatched to the isolated `feature/cbm-01` worktree. Inspect `.claude/relay/cbm-01.traycer.json` before starting anything; it owns current worker/request state and the worktree checkpoint path. Source planning commit: `1a0c1cedc`.
+- **Done:** [ticket 01](../docs/issues/01-cbm-01-identity.md) identity cleanup implemented and independently reviewed on `feature/cbm-01`, HEAD `732e25e98`. Source ticket checkpoint matches that branch. The code remains in `C:/Users/S.D/.traycer/worktrees/estarinazx__codebuff-modded/feature-cbm-01`.
+- **Verified by controller:** 106 CLI tests, 22 Freebuff checks, 5 common and 2 runtime attribution checks, full CLI typecheck, and binary help/version. Final copy follow-up passed 7 branding checks in each product mode. Exact worker build evidence, two reproduced baseline schema failures, and tmux/live acceptance limits are in ticket 01.
+- **Stopped:** `.claude/relay/cbm-01.traycer.json` records one accepted unit and `needs_visual_direction`. Worker and reviewer archived. No active implementation agent remains.
 - **Waiting:** [ticket 02](../docs/issues/02-cbm-01-theme.md) needs the user's visual direction. Default A in the HTML is not approval. [Ticket 03](../docs/issues/03-cbm-01-integration.md) follows 01 and 02.
 
 ## Pick up here
 
-Read [[pick-up]], `.claude/vibe.md`, the spec, and the current ticket checkpoint. Check live git and relay state before claiming implementation is running or complete. Use the latest user message for the direction. Keep context and fork code off `main`; it must remain an exact upstream tree mirror.
+Record the user's visual choice in the spec and ticket 02, then explicitly resume the stopped Traycer relay on the existing feature worktree with a fresh worker. Do not replay ticket 01. Check both branches before bringing source planning updates into the feature branch. Keep context and fork code off `main`; it must remain an exact upstream tree mirror. Integration follows ticket 03 after the theme passes.
 
 ## Skills for next session
 

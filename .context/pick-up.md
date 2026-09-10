@@ -9,9 +9,9 @@ Read [[overview]] and [[active-work]], then [the CBM-01 spec](../docs/prd.md) an
 
 **Exact name: CBM-01, zero, no spaces.** The user invoked pick-up then vibe init for a cyberpunk rebrand and requested quick HTML options plus a saved merge workflow. v1.4.1 release work was already complete.
 
-**In flight: ticket 01, visible identity cleanup.** Read `.claude/relay/cbm-01.traycer.json` before resuming; its `external_state` points to the active worktree's ticket checkpoint. The source [ticket](../docs/issues/01-cbm-01-identity.md) is the planning copy until integration. The relay controller is `befadc45-117d-4502-95c0-8f4f9efb1313`; do not start a duplicate while its worker is active.
+**Done: ticket 01, visible identity cleanup.** [Checkpoint](../docs/issues/01-cbm-01-identity.md) matches `feature/cbm-01` at `732e25e98`. Controller verification and independent review passed. Code is not merged into `modded` or released. The feature worktree remains at `C:/Users/S.D/.traycer/worktrees/estarinazx__codebuff-modded/feature-cbm-01`.
 
-**Visual choice remains open.** [Compare A/B/C](../docs/design/cbm-01-options.html). No palette is user-approved. Ticket 02 waits for the direction; identity work can proceed independently.
+**Next: choose the visual direction for ticket 02.** [Compare A/B/C](../docs/design/cbm-01-options.html). No palette is user-approved. Relay is stopped with `needs_visual_direction`; worker/reviewer are archived. Read `.claude/relay/cbm-01.traycer.json`, record the user's selection, and explicitly resume with a fresh leg-2 worker. Do not replay ticket 01. Ticket 03 integrates the finished identity/theme after verification.
 
 Keep fork work and baton commits on `modded` or its feature branch, never on the upstream tree mirror `main`. Preserve technical package/env/protocol/storage names, original notices, saved profiles, credential isolation, and working updater URLs. `.codeboarding/` remains user-owned. No release, package migration, or public issue publication is part of this local run.
 

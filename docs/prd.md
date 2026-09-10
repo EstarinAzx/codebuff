@@ -1,6 +1,6 @@
 # CBM-01 rebrand and terminal redesign
 
-Status: identity requirements confirmed; visual direction is open. Captured 2026-09-10 against `modded` at `426480b8c`.
+Status: identity implemented and verified on `feature/cbm-01` at `732e25e98`; visual direction is open. Captured 2026-09-10 against `modded` at `426480b8c`. Implementation is not merged or released.
 
 ## Problem Statement
 
@@ -76,7 +76,7 @@ The same-model agents' verdict does not approve a visual direction on the user's
 
 ## Work queue
 
-1. [01: Rebrand the complete visible CLI path](issues/01-cbm-01-identity.md), ready.
+1. [01: Rebrand the complete visible CLI path](issues/01-cbm-01-identity.md), complete on `feature/cbm-01` at `732e25e98`.
 2. [02: Apply the selected cyberpunk direction](issues/02-cbm-01-theme.md), waits for direction and 01.
 3. [03: Verify integration and preserve the fork through merges](issues/03-cbm-01-integration.md), waits for 01 and 02.
 

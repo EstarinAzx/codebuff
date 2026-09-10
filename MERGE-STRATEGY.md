@@ -394,6 +394,8 @@ The new required display identity is **CBM-01**, with zero and no spaces. The 20
 
 **Resolve:** preserve the fork's display-brand constant and full/small/text logo behavior, including short-height fallback. Use widths measured from the replacement art. Re-anchor the change at the shared constants/logo seams if upstream moves them. Inspect title, help, warnings, exported conversations, OAuth callback display copy, and launcher messages as well as the banner.
 
+Implemented on `feature/cbm-01` at `732e25e98` (not yet integrated): `DISPLAY_NAME` and `CLI_COMMAND` in `cli/src/utils/constants.ts`, measured `LOGO_VARIANTS` in `use-logo.tsx`, and fork art in `cli/src/login/constants.ts`. Keep `suppressCommitAttribution: true` on the three terminal-capable `mod-default`, `mod-lite`, and `mod-max` roots; shared tool-description defaults remain intact. The branding regression checks the reachable child closure so a new terminal-capable child cannot silently restore old generated commit footers.
+
 Keep original notices and truthful package, import, environment, storage, protocol, binary, and download identifiers. A display rebrand is not a distribution migration. Keep provider/auth behavior and the separate Freebuff build paths working. Run the final branding regression named by [the rebrand workflow](./docs/design/cbm-01-workflow.md) after future upstream merges; typechecks alone do not catch restored labels.
 
 #### CBM-01 feature integration
@@ -432,9 +434,9 @@ Fork registers `/providers`, `/providers:add|remove|list|select|bind|unbind|bind
 
 #### `cli/package.json`
 
-Fork sets `"name": "codebuff-mod"` and bumps `version` each release.
+The internal workspace name is `@codebuff/cli`; the published launcher in `cli/release/package.json` is `codebuff-mod`. Preserve each identity in its own manifest and keep their release versions matched. The earlier conflict-map wording conflated these two packages.
 
-**Resolve:** keep fork name + version; take everything else from upstream.
+**Resolve:** preserve the current manifest identities/version and union required development dependencies. The CBM-01 branch adds the already-root-pinned `@types/react-dom@19.2.3` so existing renderer tests typecheck. Keep that declaration if upstream still imports `react-dom/server` without supplying its types.
 
 #### `cli/release/index.js`, `cli/release/package.json`, `cli/release/postinstall.js`, `cli/release/README.md`
 
