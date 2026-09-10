@@ -1,6 +1,6 @@
 # CBM-01 rebrand and terminal redesign
 
-Status: complete locally. Identity and the user-selected **C: Ghostline** are integrated into `modded` at `5cc13014d5d9d54ae49da5451775c0d82329b1fa`, with a verified local build and final baton/state handoff saved. No release or global installation was performed. Original scope captured 2026-09-10 against `modded` at `426480b8c`; final evidence is in ticket 03.
+Status: shipped in **[CBM-01 v1.5.0](https://github.com/EstarinAzx/codebuff-modded/releases/tag/v1.5.0)** on GitHub and npm, with global `cbm` verified at 1.5.0. Identity and the user-selected **C: Ghostline** were integrated at `5cc13014d5d9d54ae49da5451775c0d82329b1fa`; the animated-banner follow-up is `954cd024a`, and release source is `3f0d9c252`. The user separately authorized publication with "ok cut the new release". The original rebrand scope below was captured 2026-09-10 against `426480b8c`; ticket 03 holds integration evidence and [.context/active-work.md](../.context/active-work.md) points to the release record.
 
 ## Problem Statement
 

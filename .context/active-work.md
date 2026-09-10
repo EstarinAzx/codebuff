@@ -12,21 +12,21 @@ _Release source: 3f0d9c252070a5c962d5d230079685e91731909e_
 
 ## Current focus
 
-Finish the user-authorized **CBM-01 v1.5.0** release. [GitHub v1.5.0](https://github.com/EstarinAzx/codebuff-modded/releases/tag/v1.5.0) is public with verified Windows x64, Linux x64, Linux arm64 and SHA256SUMS assets. **npm remains at 1.4.1 because its saved login is invalid.**
+**CBM-01 v1.5.0 is shipped and verified.** [GitHub](https://github.com/EstarinAzx/codebuff-modded/releases/tag/v1.5.0) has Windows x64, Linux x64, Linux arm64 and SHA256SUMS assets; [npm](https://www.npmjs.com/package/codebuff-mod/v/1.5.0) latest is 1.5.0. The global `cbm` is updated and reports 1.5.0. No active implementation or release task remains.
 
 ## State
 
-- **Done:** reviewed CBM-01 identity, Ghostline design, animated violet banner and responsive picker fixes; versioned source, builds and GitHub publication.
+- **Done:** reviewed CBM-01 identity, Ghostline design, animated violet banner and responsive picker fixes; versioned source, builds, GitHub publication, npm publication and global installation.
 - **Verified:** common/sdk/cli typechecks; 67 focused release tests; Freebuff 8 pass / 6 expected skips; shared attribution 5 pass; runtime attribution 2 pass / 15 unrelated cases filtered. Archive headers, member hashes, executable modes and public asset digests match. Independently extracted Windows help/version reports CBM-01 1.5.0.
-- **Waiting on user:** native npm sign-in. Publishing returned E404; subsequent whoami/access checks returned E401. Public owner remains tsd47216. Traycer has opened the native login page for the user. Account/package security is unchanged.
-- **Ready:** exact five-file `cli/dist-binaries/1.5.0/codebuff-mod-1.5.0.tgz` passed `npm publish --dry-run`. Publish this tarball after authentication, then verify registry integrity and the installed version.
-- **Distribution state:** global `cbm` remains 1.4.1. The source development executable also remains 1.4.1; release builds used `C:/Users/S.D/.traycer/worktrees/estarinazx__codebuff-modded/release-v1-5-0`. Preserve running apps and existing provider/credential state.
-- **Evidence:** this epic's `artifacts/cbm-01-release-1-5-0/index.md` owns asset hashes, npm integrity, commands, login session handles and next steps. Local build record is `cli/dist-binaries/1.5.0/build-record.json`.
+- **Published verification:** npm's public tarball matches the prepared package byte-for-byte and latest is 1.5.0. The installed launcher fetched the public Windows archive; executable and WASM hashes match the verified build. Global `cbm --version` and `--help` pass.
+- **Preserved:** providers.json, codex-oauth.json, grok-oauth.json and credentials.json match their pre-release hashes. Native npm login and publishing approval completed; account/package security and permanent TLS settings were not changed.
+- **Run:** `cbm`. The source development `cli/bin/codebuff-mod.exe` still reports 1.4.1 because release builds used `C:/Users/S.D/.traycer/worktrees/estarinazx__codebuff-modded/release-v1-5-0`; use the updated global command for the shipped build.
+- **Evidence:** this epic's `artifacts/cbm-01-release-1-5-0/index.md` owns asset hashes, npm integrity, commands and limits. Local build record is `cli/dist-binaries/1.5.0/build-record.json`.
 - **Branch protection:** peeled `v1.5.0` is `3f0d9c252070a5c962d5d230079685e91731909e`. `main` remains `88c4df13a` with the same tree as local `upstream/main`. Subsequent handoff commits do not move the release tag.
 
 ## Pick up here
 
-Check the release artifact and live GitHub/npm state before repeating any publication. After the user completes the pending login, verify npm identity and publish the exact prepared tarball. Use native publishing approval if npm requests it. Verify registry-direct latest/integrity, install the published package, check `cbm --version` and the installed binary/WASM hashes, and compare the private provider-file fingerprint baseline. Refresh this handoff and overview after success.
+No active work. The release and old implementation relay are complete; start from the user's next task. Before any future release, read `MERGE-STRATEGY.md` and use a new version. Before upstream integration, preserve the CBM-01/Ghostline seams and the upstream-tree mirror `main`.
 
 ## Recent context
 
