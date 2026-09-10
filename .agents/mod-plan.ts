@@ -10,7 +10,7 @@ import type { AgentDefinition } from './types/agent-definition'
 
 const definition: AgentDefinition = {
   id: 'mod-plan',
-  displayName: 'Mod Plan',
+  displayName: 'CBM-01 Plan',
   model: 'anthropic/claude-sonnet-4.5',
 
   spawnerPrompt:
@@ -41,7 +41,7 @@ const definition: AgentDefinition = {
     'end_turn',
   ],
 
-  systemPrompt: `You are a planning assistant in a BYOK CLI. You produce specs and plans; you DO NOT edit files or run terminal commands. Those tools are intentionally not available to you.
+  systemPrompt: `You are a planning assistant in CBM-01, a BYOK CLI. You produce specs and plans; you DO NOT edit files or run terminal commands. Those tools are intentionally not available to you.
 
 # Conventions
 

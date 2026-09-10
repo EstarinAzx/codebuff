@@ -22,6 +22,7 @@ import {
   saveCodexCredentials,
 } from '@codebuff/sdk'
 import { safeOpen } from './open-url'
+import { DISPLAY_NAME } from './constants'
 
 import type { ChatGptOAuthCredentials } from '@codebuff/sdk'
 
@@ -122,13 +123,13 @@ function escapeHtml(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;')
 }
 
-function callbackPageHtml(success: boolean, errorMessage?: string): string {
-  const title = success ? 'Connected — Codebuff' : 'Connection Failed — Codebuff'
+export function callbackPageHtml(success: boolean, errorMessage?: string): string {
+  const title = `${success ? 'Connected' : 'Connection Failed'} — ${DISPLAY_NAME}`
   const heading = success ? '✓ Connected to ChatGPT' : 'Connection Failed'
   const headingColor = success ? '#4ade80' : '#f87171'
   const body = success
-    ? 'You can close this tab and return to Codebuff.'
-    : `${escapeHtml(errorMessage ?? 'Unknown error')}. Return to Codebuff and try /connect:chatgpt again.`
+    ? `You can close this tab and return to ${DISPLAY_NAME}.`
+    : `${escapeHtml(errorMessage ?? 'Unknown error')}. Return to ${DISPLAY_NAME} and try /connect:chatgpt again.`
   return `<!DOCTYPE html>
 <html><head><meta charset="utf-8"><title>${title}</title></head>
 <body style="font-family:system-ui,sans-serif;display:flex;justify-content:center;align-items:center;min-height:100vh;margin:0;background:#0a0a0a;color:#e5e5e5">

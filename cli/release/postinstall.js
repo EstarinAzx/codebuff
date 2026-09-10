@@ -23,7 +23,7 @@ for (const name of staleBinaries) {
 
 // Print welcome message
 console.log('\n');
-console.log('🎉 codebuff-mod installed.');
+console.log('🎉 CBM-01 installed (codebuff-mod).');
 console.log('\n');
 console.log('BYOK fork — bring your own API key.');
 console.log('\n');
@@ -34,5 +34,5 @@ console.log('  3. In the CLI: /providers:add <preset> <apiKey>');
 console.log('     Presets: openai, anthropic, openrouter, opencode-go, deepseek, gemini,');
 console.log('              mistral, together, groq, custom-openai');
 console.log('\n');
-console.log('Repo: https://github.com/EstarinAzx/codebuff');
+console.log('Repo: https://github.com/EstarinAzx/codebuff-modded');
 console.log('\n');

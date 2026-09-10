@@ -1,4 +1,5 @@
 import { describe, expect, mock, test } from 'bun:test'
+import path from 'path'
 
 import { exportConversation } from '../export-conversation'
 import { IS_FREEBUFF } from '../../utils/constants'
@@ -6,8 +7,7 @@ import { IS_FREEBUFF } from '../../utils/constants'
 import type { ExportDeps } from '../export-conversation'
 import type { ChatMessage, ContentBlock } from '../../types/chat'
 
-// The default filename prefix follows the product branding, like the
-// transcript header in serializeConversation.
+// Keep existing export filenames compatible; the transcript carries display branding.
 const PRODUCT = IS_FREEBUFF ? 'freebuff' : 'codebuff'
 
 const msg = (
@@ -45,7 +45,7 @@ describe('exportConversation', () => {
 
     expect(result).toMatchObject({
       ok: true,
-      filePath: `/project/${PRODUCT}-chat-2026-06-25T00-00-00.000Z.md`,
+      filePath: path.resolve('/project', `${PRODUCT}-chat-2026-06-25T00-00-00.000Z.md`),
       format: 'markdown',
     })
     expect(writes).toHaveLength(1)
@@ -62,9 +62,9 @@ describe('exportConversation', () => {
     )
     expect(result).toMatchObject({
       ok: true,
-      filePath: '/project/notes/chat.md',
+      filePath: path.resolve('/project/notes/chat.md'),
     })
-    expect(writes[0].filePath).toBe('/project/notes/chat.md')
+    expect(writes[0].filePath).toBe(path.resolve('/project/notes/chat.md'))
   })
 
   test('refuses a path that escapes the project root', async () => {

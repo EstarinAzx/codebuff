@@ -9,7 +9,7 @@ import {
   trackEvent,
 } from '../utils/analytics'
 import { saveUserCredentials } from '../utils/auth'
-import { IS_FREEBUFF } from '../utils/constants'
+import { CLI_COMMAND, DISPLAY_NAME, IS_FREEBUFF } from '../utils/constants'
 import { getFingerprintId } from '../utils/fingerprint'
 import { logger } from '../utils/logger'
 
@@ -27,7 +27,7 @@ export async function runPlainLogin(): Promise<void> {
   const fingerprintId = await getFingerprintId()
 
   console.log()
-  console.log(bold(IS_FREEBUFF ? 'Freebuff Login' : 'Codebuff Login'))
+  console.log(bold(`${DISPLAY_NAME} Login`))
   console.log()
   console.log('Generating login URL...')
 
@@ -95,7 +95,7 @@ export async function runPlainLogin(): Promise<void> {
     console.log()
     console.log(green(`✓ Logged in as ${user.name} (${user.email})`))
     console.log()
-    const cliName = IS_FREEBUFF ? 'freebuff' : 'codebuff'
+    const cliName = CLI_COMMAND
     console.log('You can now run ' + cyan(cliName) + ' to start.')
     process.exit(0)
   } else if (result.status === 'timeout') {

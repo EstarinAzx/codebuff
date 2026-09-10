@@ -68,8 +68,8 @@ export function parseArgs({
   } else {
     // Codebuff: full CLI with all options
     program
-      .name('codebuff')
-      .description('Codebuff CLI - AI-powered coding assistant')
+      .name('cbm')
+      .description('CBM-01 CLI - AI-powered coding assistant')
       .version(version, '-v, --version', 'Print the CLI version')
       .option(
         '--agent <agent-id>',

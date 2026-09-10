@@ -1,8 +1,8 @@
-# codebuff-mod
+# CBM-01
 
-BYOK fork of [Codebuff](https://github.com/CodebuffAI/codebuff). Bring your own LLM provider API key — no codebuff.com account, no central billing, no quotas beyond what your provider enforces.
+CBM-01 is a BYOK fork of [Codebuff](https://github.com/CodebuffAI/codebuff). Bring your own LLM provider API key — no codebuff.com account, no central billing, no quotas beyond what your provider enforces.
 
-Fork source: https://github.com/EstarinAzx/codebuff
+Fork source: https://github.com/EstarinAzx/codebuff-modded
 
 ## Installation
 
@@ -84,7 +84,7 @@ If still broken, [reinstall Node](https://nodejs.org/en/download).
 
 ### Binary download fails
 
-The launcher fetches the platform binary from GitHub Releases of `EstarinAzx/codebuff` on first run. If you're behind a proxy, set `HTTPS_PROXY`:
+The launcher fetches the platform binary from GitHub Releases of `EstarinAzx/codebuff-modded` on first run. If you're behind a proxy, set `HTTPS_PROXY`:
 
 ```bash
 export HTTPS_PROXY=http://your-proxy-server:port   # bash/zsh
@@ -119,4 +119,4 @@ MIT. Built on top of [Codebuff](https://github.com/CodebuffAI/codebuff) (Apache-
 
 ## Issues
 
-https://github.com/EstarinAzx/codebuff/issues
+https://github.com/EstarinAzx/codebuff-modded/issues

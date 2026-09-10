@@ -1,4 +1,4 @@
-import { AGENT_MODES, IS_FREEBUFF } from '../utils/constants'
+import { AGENT_MODES, DISPLAY_NAME, IS_FREEBUFF } from '../utils/constants'
 
 import type { SkillsMap } from '@codebuff/common/types/skill'
 
@@ -169,7 +169,7 @@ const ALL_SLASH_COMMANDS: SlashCommand[] = [
   {
     id: 'feedback',
     label: 'feedback',
-    description: IS_FREEBUFF ? 'Share general feedback about Freebuff' : 'Share general feedback about Codebuff',
+    description: `Share general feedback about ${DISPLAY_NAME}`,
   },
   {
     id: 'bash',

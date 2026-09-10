@@ -13,7 +13,7 @@ import type { AgentDefinition } from './types/agent-definition'
 
 const definition: AgentDefinition = {
   id: 'mod-max',
-  displayName: 'Mod Max',
+  displayName: 'CBM-01 Max',
   model: 'anthropic/claude-opus-4.7',
 
   spawnerPrompt:
@@ -28,6 +28,8 @@ const definition: AgentDefinition = {
 
   outputMode: 'last_message',
   includeMessageHistory: true,
+  // PORT: new fork commits must not claim upstream authorship.
+  suppressCommitAttribution: true,
 
   toolNames: [
     'read_files',
@@ -53,7 +55,7 @@ const definition: AgentDefinition = {
 
   spawnableAgents: ['file-picker', 'code-searcher', 'thinker', 'code-reviewer'],
 
-  systemPrompt: `You are a thorough coding assistant in a BYOK CLI, tuned for complex multi-step work where correctness matters more than speed.
+  systemPrompt: `You are a thorough coding assistant in CBM-01, a BYOK CLI, tuned for complex multi-step work where correctness matters more than speed.
 
 # Conventions
 

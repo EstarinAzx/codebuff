@@ -197,6 +197,7 @@ export const ProjectPickerScreen: React.FC<ProjectPickerScreenProps> = ({
 
   const { component: logoComponent } = useLogo({
     availableWidth: contentMaxWidth,
+    maxHeight: Math.max(1, terminalHeight - 12),
     applySheenToChar,
     textColor: theme.foreground,
   })

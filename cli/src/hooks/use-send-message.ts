@@ -11,7 +11,7 @@ import {
 } from './use-freebuff-session'
 import { getSelectedFreebuffReasoningEffort } from '../state/freebuff-model-store'
 import { getCodebuffClient } from '../utils/codebuff-client'
-import { AGENT_MODE_TO_COST_MODE, IS_FREEBUFF } from '../utils/constants'
+import { AGENT_MODE_TO_COST_MODE, DISPLAY_NAME, IS_FREEBUFF } from '../utils/constants'
 import { createEventHandlerState } from '../utils/create-event-handler-state'
 import { createRunConfig } from '../utils/create-run-config'
 import { getAgentIdForMode } from '../utils/freebuff-agent-selection'
@@ -476,7 +476,7 @@ export const useSendMessage = ({
         if (releaseIfStopped()) return
         logger.error(
           { error },
-          '[send-message] Failed to create Codebuff client',
+          `[send-message] Failed to create ${DISPLAY_NAME} client`,
         )
         setMessages((prev) => [
           ...prev,
@@ -493,10 +493,10 @@ export const useSendMessage = ({
       if (!client) {
         logger.error(
           {},
-          '[send-message] No Codebuff client available. Please ensure you are authenticated.',
+          `[send-message] No ${DISPLAY_NAME} client available. Please ensure you are authenticated.`,
         )
         // Show error to user instead of silently failing
-        const brandName = IS_FREEBUFF ? 'Freebuff' : 'Codebuff'
+        const brandName = DISPLAY_NAME
         setMessages((prev) => [
           ...prev,
           createErrorChatMessage(

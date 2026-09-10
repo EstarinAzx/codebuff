@@ -23,24 +23,20 @@ export const FREEBUFF_WEB_URL = IS_DEV
   : (env.NEXT_PUBLIC_FREEBUFF_APP_URL ?? FREEBUFF_WEB_URL_PROD)
 export const LOGIN_WEBSITE_URL = IS_FREEBUFF ? FREEBUFF_WEB_URL : WEBSITE_URL
 
-// Codebuff (modded) ASCII Logo - "CODEBUFF - M", needs ~92-width terminal
-const LOGO_CODEBUFF = `
-  ██████╗ ██████╗ ██████╗ ███████╗██████╗ ██╗   ██╗███████╗███████╗         ███╗   ███╗   ╔██╗
- ██╔════╝██╔═══██╗██╔══██╗██╔════╝██╔══██╗██║   ██║██╔════╝██╔════╝         ████╗ ████║  ╔███║
- ██║     ██║   ██║██║  ██║█████╗  ██████╔╝██║   ██║█████╗  █████╗   █████╗  ██╔████╔██║  ████║
- ██║     ██║   ██║██║  ██║██╔══╝  ██╔══██╗██║   ██║██╔══╝  ██╔══╝   ╚════╝  ██║╚██╔╝██║  ╚═██║
- ╚██████╗╚██████╔╝██████╔╝███████╗██████╔╝╚██████╔╝██║     ██║              ██║ ╚═╝ ██║   ████╗
-  ╚═════╝ ╚═════╝ ╚═════╝ ╚══════╝╚═════╝  ╚═════╝ ╚═╝     ╚═╝              ╚═╝     ╚═╝   ╚═══╝
+// PORT: CBM-01 identity; retain the existing theme and sheen colors.
+const LOGO_CBM = `
+ ███  ████  █   █       ███    █
+█   █ █   █ ██ ██      █   █  ██
+█     ████  █ █ █ ███  █ █ █   █
+█   █ █   █ █   █      █   █   █
+ ███  ████  █   █       ███   ███
+             CBM-01
 `
 
-// Modded small logo - "CBM"
-const LOGO_SMALL_CODEBUFF = `
-  ██████╗ ██████╗  ███╗   ███╗
- ██╔════╝ ██╔══██╗ ████╗ ████║
- ██║      ██████╔╝ ██╔████╔██║
- ██║      ██╔══██╗ ██║╚██╔╝██║
- ╚██████╗ ██████╔╝ ██║ ╚═╝ ██║
-  ╚═════╝ ╚═════╝  ╚═╝     ╚═╝
+const LOGO_SMALL_CBM = `
+╭────────╮
+│ CBM-01 │
+╰────────╯
 `
 
 // Freebuff ASCII Logo
@@ -62,8 +58,8 @@ const LOGO_SMALL_FREEBUFF = `
  ╚═╝     ╚═════╝
 `
 
-export const LOGO = IS_FREEBUFF ? LOGO_FREEBUFF : LOGO_CODEBUFF
-export const LOGO_SMALL = IS_FREEBUFF ? LOGO_SMALL_FREEBUFF : LOGO_SMALL_CODEBUFF
+export const LOGO = IS_FREEBUFF ? LOGO_FREEBUFF : LOGO_CBM
+export const LOGO_SMALL = IS_FREEBUFF ? LOGO_SMALL_FREEBUFF : LOGO_SMALL_CBM
 
 // Shadow/border characters that receive the sheen animation effect
 export const SHADOW_CHARS = new Set([
