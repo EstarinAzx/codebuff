@@ -10,4 +10,10 @@ Correction, which supersedes the original spelling:
 
 > its actually  CBM-01 its 0 not O
 
-The exact display identity is **CBM-01**, with a zero and no spaces. The requested deliverables are a rebrand, cyberpunk design options in a quick HTML draft, and a saved workflow with a merge strategy. The user invoked vibe for autonomous planning. No final palette, layout, npm name, repository rename, or new release was specified.
+The exact display identity is **CBM-01**, with a zero and no spaces. The requested deliverables are a rebrand, cyberpunk design options in a quick HTML draft, and a saved workflow with a merge strategy. The user invoked vibe for autonomous planning. No npm name, repository rename, or new release was specified.
+
+Visual selection, after the HTML options were presented:
+
+> Use C: Ghostline for CBM-01.
+
+This approves Ghostline for implementation and unblocks the visual ticket. The selected reference is option C in `cbm-01-options.html`; the working scope and compatibility guarantees remain in the spec.

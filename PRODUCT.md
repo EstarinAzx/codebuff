@@ -14,7 +14,7 @@ Let a developer ask for a coding task, inspect the agent's work, and continue us
 
 ## Brand Personality
 
-The display identity is exactly **CBM-01** (zero, no spaces). The user requested a cyberpunk aesthetic and removal of visible upstream branding. These are confirmed requirements. The precise visual direction remains open; draft alternatives are experiments, not an approved brand system. See `docs/design/cbm-01-request.md`.
+The display identity is exactly **CBM-01** (zero, no spaces). The user selected **C: Ghostline** from the HTML concepts: quiet violet accents, compact identity, muted chrome, and a single reading column. See `docs/design/cbm-01-request.md` for the exact selection and `DESIGN.md` for the terminal adaptation.
 
 ## Anti-references
 

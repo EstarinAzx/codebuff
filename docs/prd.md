@@ -1,6 +1,6 @@
 # CBM-01 rebrand and terminal redesign
 
-Status: identity requirements confirmed; visual direction is open. Captured 2026-09-10 against `modded` at `426480b8c`.
+Status: identity implemented and verified on `feature/cbm-01` at `732e25e98`; the user selected **C: Ghostline** for styling. Captured 2026-09-10 against `modded` at `426480b8c`. Implementation is not merged or released.
 
 ## Problem Statement
 
@@ -46,10 +46,11 @@ This is the intended identity change around an existing working flow, not a new 
 - Use one small shared display-brand constant at the existing CLI constants seam where practical. Keep explicit component text easy to inspect; do not introduce a brand service or runtime string-replacement filter.
 - The shipped fork's visible copy is in scope, including responsive logos, titles, startup/help, warnings, exports, clipboard summaries, callback HTML, updater/postinstall messages, and agent self-identification. Inspect callers before editing a shared seam.
 - Product-owned display copy must not use the old brand as the app's identity. **Compatibility exception:** real package/import names, executable/download names, environment keys, paths, protocol identifiers, original licenses/notices, and truthful diagnostics about those identifiers remain accurate. This is an implementation boundary chosen to preserve existing behavior, not a claim that the user approved every residual string.
+- Newly generated Git commit footers are product output, not an original-notice exception. Reuse the existing attribution-suppression option for fork agents that can commit, including relevant reachable children. Their tool descriptions must not teach the legacy generated footer or worked example. Preserve shared SDK/Freebuff defaults and existing or user-supplied author information; do not rewrite history or invent a new attribution email.
 - Preserve `cbm`, the existing package and binary distribution, provider routing, credential locations, active selection, model discovery, OAuth behavior, and all backend bypass conditions. No storage migration, public API change, or provider configuration change belongs in this work.
 - The HTML options are static sample screens with native browser radio controls. They perform no coding tasks, profile changes, or authentication.
-- The visual candidates are **A: Neon Circuit**, **B: Amber Grid**, and **C: Ghostline**. A is an agent recommendation, not a selected design. The user has not selected a palette or layout.
-- Identity cleanup is independent of palette selection. The theme ticket begins after a direction is confirmed. The concepts explore rails and density; implementation must fit existing terminal layout primitives and retain responsive behavior rather than promise every browser effect.
+- The user selected **C: Ghostline**: "Use C: Ghostline for CBM-01." [DESIGN.md](../DESIGN.md) records the selected visual ingredients and their terminal adaptation. A and B remain comparison alternatives, not implementation targets.
+- Identity cleanup is complete independently of the palette. The theme ticket is now unblocked. Implement Ghostline through existing terminal primitives with its compact wordmark, single reading column, quiet status, and violet focus; retain responsive behavior rather than literal browser sizing or effects.
 - Use existing theme and logo seams. Keep automatic/light themes, terminal capability detection, user overrides, and motion preferences. No decorative animation is necessary.
 - Keep local planning files as the current queue. GitHub is authenticated, but publishing the prepared issues and any release remains a separate external step. This is the reversible planning default for the requested draft.
 
@@ -71,12 +72,12 @@ Renaming the GitHub repository/npm package, modifying original notices, changing
 
 Planning used two independent GPT-6 Astra agents under the installed Traycer selection guide. The Partner supplied eight file warrants, verified mechanically; Pressure accepted the compatibility boundary after rejecting literal-zero claims. This was **same-model scrutiny**, not cross-model validation. No visual bar was confirmed, so gauntlet is not chained.
 
-The same-model agents' verdict does not approve a visual direction on the user's behalf.
+The user, not the planning agents, selected Ghostline. This does not establish a gauntlet bar or authorize a release.
 
 ## Work queue
 
-1. [01: Rebrand the complete visible CLI path](issues/01-cbm-01-identity.md), ready.
-2. [02: Apply the selected cyberpunk direction](issues/02-cbm-01-theme.md), waits for direction and 01.
+1. [01: Rebrand the complete visible CLI path](issues/01-cbm-01-identity.md), complete on `feature/cbm-01` at `732e25e98`.
+2. [02: Apply Ghostline](issues/02-cbm-01-theme.md), ready following the user's selection and completed 01.
 3. [03: Verify integration and preserve the fork through merges](issues/03-cbm-01-integration.md), waits for 01 and 02.
 
 Execution and merge rules: [workflow](design/cbm-01-workflow.md). Upstream sync and release authority: [MERGE-STRATEGY.md](../MERGE-STRATEGY.md).

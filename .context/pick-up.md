@@ -9,9 +9,9 @@ Read [[overview]] and [[active-work]], then [the CBM-01 spec](../docs/prd.md) an
 
 **Exact name: CBM-01, zero, no spaces.** The user invoked pick-up then vibe init for a cyberpunk rebrand and requested quick HTML options plus a saved merge workflow. v1.4.1 release work was already complete.
 
-**Next: ticket 01, visible identity cleanup.** Read [its checkpoint](../docs/issues/01-cbm-01-identity.md) and `.claude/relay/cbm-01.traycer.json` if present before resuming. The relay controller is `befadc45-117d-4502-95c0-8f4f9efb1313`; do not start a duplicate while its worker is active.
+**Done: ticket 01, visible identity cleanup.** [Checkpoint](../docs/issues/01-cbm-01-identity.md) matches `feature/cbm-01` at `732e25e98`. Controller verification and independent review passed. Code is not merged into `modded` or released. The feature worktree remains at `C:/Users/S.D/.traycer/worktrees/estarinazx__codebuff-modded/feature-cbm-01`.
 
-**Visual choice remains open.** [Compare A/B/C](../docs/design/cbm-01-options.html). No palette is user-approved. Ticket 02 waits for the direction; identity work can proceed independently.
+**Next: implement C: Ghostline in ticket 02.** The user explicitly selected it. Read [DESIGN.md](../DESIGN.md), ticket 02, and `.claude/relay/cbm-01.traycer.json` for actual worker ownership. Resume with a fresh leg-2 worker after syncing committed planning updates into the existing feature worktree. Do not replay ticket 01 or ask for the design choice again. Ticket 03 integrates the finished identity/theme after verification.
 
 Keep fork work and baton commits on `modded` or its feature branch, never on the upstream tree mirror `main`. Preserve technical package/env/protocol/storage names, original notices, saved profiles, credential isolation, and working updater URLs. `.codeboarding/` remains user-owned. No release, package migration, or public issue publication is part of this local run.
 
