@@ -7,11 +7,11 @@ tags: [moc, codebuff, llm-proxy, byok]
 
 # RD-X-96 (fork) — Map
 
-Current source is **RD-X-96** (no spaces), launched with `rdx`, with user-selected **C: Ghostline**, an animated hot-pink banner and cyan assistant reply frames. The user supplied this replacement palette and requested no background. `cbm` and `codebuff-mod` remain launcher aliases. This update is not released; the published and globally installed v1.5.0 remains CBM-01. See [[active-work]] for local verification and preview instructions. [Product](../PRODUCT.md), [selected design](../DESIGN.md), [original spec](../docs/prd.md), and [workflow](../docs/design/cbm-01-workflow.md). Existing distribution identifiers below remain compatibility facts.
+**RD-X-96 v1.5.1 is published on [GitHub](https://github.com/EstarinAzx/codebuff-modded/releases/tag/v1.5.1) and [npm](https://www.npmjs.com/package/codebuff-mod/v/1.5.1), and installed globally.** Launch with `rdx`; `cbm` and `codebuff-mod` remain aliases. The current design keeps Ghostline's layout with a hot-pink animated banner/headings, cyan reply frames/code accents and a transparent terminal canvas. The large logo has no duplicate small label; compact fallbacks remain. See [[active-work]] for verification and release limits. [Product](../PRODUCT.md), [selected design](../DESIGN.md), [original spec](../docs/prd.md), and [workflow](../docs/design/cbm-01-workflow.md).
 
 Upstream Codebuff is a composable coding-agent monorepo where a hosted backend proxies LLM requests to upstream providers and bills users in credits via BigQuery + Stripe. CLI is a TUI built on OpenTUI + React. Also ships `freebuff`, the free tier.
 
-**This fork is standalone BYOK** on `modded`, distributed as `codebuff-mod`. The fork includes upstream snapshot `ab19b7582`, account-scoped Codex discovery, and Grok subscription OAuth. Users run `cbm`, add an API-key provider with `/providers:add <preset> <apiKey>`, or use `/providers:add codex` or `/providers:add grok` for subscription OAuth, then select models with `/model`. No codebuff.com account or billing backend is required. See [[active-work]] for release verification and first-use Grok sign-in.
+**This fork is standalone BYOK** on `modded`, distributed as `codebuff-mod`. The fork includes upstream snapshot `ab19b7582`, account-scoped Codex discovery, and Grok subscription OAuth. Users run `rdx`, add an API-key provider with `/providers:add <preset> <apiKey>`, or use `/providers:add codex` or `/providers:add grok` for subscription OAuth, then select models with `/model`. No codebuff.com account or billing backend is required. See [[active-work]] for release verification and first-use Grok sign-in.
 
 **As of v1.1.0 the fork is BYOK-only with no in-repo backend.** The 2026-06-11 strategy-B sync rode upstream's pivot to a CLI/SDK-only public snapshot and dropped `web/` + `packages/{internal,billing,bigquery,build-tools}`. SDK Path B (`CODEBUFF_USE_BACKEND=1` in `sdk/src/impl/database.ts`) still exists for external SDK consumers but now targets a *remote* codebuff.com — the fork no longer hosts the backend. See [[decisions]] "Ride upstream's snapshot deletion to a BYOK-only fork (strategy B)" and [MERGE-STRATEGY.md](../MERGE-STRATEGY.md) (rewritten for the lean tree).
 
@@ -55,3 +55,9 @@ Maintained upstream — read these directly:
 ## Kickoff incantation
 
 `Read .context/overview.md and .context/active-work.md to start a fresh agent.`
+
+## Related
+
+- [[active-work]]
+- [[pick-up]]
+- [[decisions]]
