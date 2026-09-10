@@ -5,13 +5,15 @@ updated: 2026-09-11
 
 # Pick up
 
-The user authorized integrating and installing the tested search/browser/Windows preview as local `rdx`, preserving all profiles. Integration of `feature/rdx-web-computer-tools` (`ec079585bf19020dc62f36d0f1ee50a20edc6518`) into `modded` is in progress; the sole merge conflict was this handoff note.
+Read [[active-work]]. **The tested search/browser/Windows preview is integrated into `modded` and installed locally.** `rdx`, `cbm` and `codebuff-mod` all report `1.5.2-dev.tools`. No active work remains.
 
-Read this epic's `artifacts/rdx-web-computer-install/index.md` for installation progress. The original feature verification is in `artifacts/rdx-web-computer-tools/index.md`. Complete merged regression checks, install the exact tested `1.5.2-dev.tools` executable/WASM, then verify the aliases and pre-install settings fingerprints in `debug/local-install-1.5.2-dev.tools/`.
+The user authorized local installation while preserving profiles. Both profiles remain, Grok stays selected, and provider/credential/connector fingerprints are unchanged. Existing RD-X-96 sessions were preserved; start a new `rdx` session for the upgrade. `/browser on` and `/computer on` enable local control without another API key.
 
-Do not publish or push. Preserve the running RD-X-96 session, provider/auth/connector settings, the old public 1.5.1 release tag, upstream `main`, and user-owned `.codeboarding/`. The retained feature worktree owns the verified executable and its system-trust preview launcher.
+The integration passed 190 regression tests, four typechecks and independent review. A focused launcher regression also passes: the preview is retained over 1.5.1 and later stable updates still work. Installed executable/WASM hashes and aliases were verified outside the repository.
+
+This was a local install, with no push or publication. Keep the public 1.5.1 release/tag fixed and preserve `main` as the upstream mirror and user-owned `.codeboarding/`. The epic's `artifacts/rdx-web-computer-install/index.md` owns installation/rollback evidence. If asked to publish, use a new stable version and [MERGE-STRATEGY.md](../MERGE-STRATEGY.md).
 
 ## Related
 
 - [[overview]]
-- [[active-work]] — feature verification before integration
+- [[active-work]]

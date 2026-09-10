@@ -211,9 +211,8 @@ function getCurrentVersion() {
 function compareVersions(v1, v2) {
   if (!v1 || !v2) return 0
 
-  // Always update if the current version is not a valid semver
-  // e.g. 1.0.420-beta.1
-  if (!v1.match(/^\d+(\.\d+)*$/)) {
+  // Keep newer local prereleases; repair unrecognized installed versions.
+  if (!v1.match(/^\d+(\.\d+)*(?:-[0-9A-Za-z.-]+)?$/)) {
     return -1
   }
 

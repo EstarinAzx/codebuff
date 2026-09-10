@@ -2,7 +2,7 @@
 type: active-work
 project: RD-X-96
 updated: 2026-09-11
-tags: [context, active-work, web, computer-tools]
+tags: [context, active-work, local-install]
 ---
 
 # Active Work
@@ -11,27 +11,28 @@ _Last updated: 2026-09-11 by Codex / GPT-6 (auto)_
 
 ## Current focus
 
-The search/browser/Windows upgrade is implemented and verified on `feature/rdx-web-computer-tools`. The user explicitly requested all three without another API key. The Windows preview is `1.5.2-dev.tools`; the installed/public release remains `1.5.1`.
+The search/browser/Windows preview is integrated into `modded` and installed locally as `1.5.2-dev.tools`. The user explicitly authorized this installation. No active implementation or installation work remains.
 
 ## State
 
-- **Done:** saved Codex subscription supplies search while Grok remains selected; opt-in `/browser on` and `/computer on`, with status/off controls. Actual DEFAULT/LITE search and mode registration are covered. PLAN receives no automatic local-control tools.
-- **Verified:** 190 focused tests; common/SDK/CLI/runtime typechecks; real sourced search; real browser navigation/type/click/screenshot; real Windows type/click/screenshot. Independent review has no remaining actionable blockers. Windows preview build and help/version smoke passed.
-- **Evidence:** current epic `artifacts/rdx-web-computer-tools/index.md` and `artifacts/rdx-web-computer-review/index.md`. Ignored live evidence is `debug/local-tools/` in the feature worktree.
-- **Remaining choice:** integrate/install or publish the preview. No release or global CLI replacement was performed. The existing 1.5.1 release and fixed tag remain complete.
+- **Installed:** `rdx`, `cbm` and `codebuff-mod` each report `1.5.2-dev.tools` from outside the repository. The installed executable and WASM match the tested preview hashes.
+- **Integrated:** feature source `ec079585bf19020dc62f36d0f1ee50a20edc6518` merged at `ba8805e49`. The sole merge conflict was the handoff note. The launcher now accepts this prerelease so it does not downgrade to 1.5.1; later stable versions remain eligible for updates.
+- **Verified:** 190 merged regression tests plus the new launcher regression, four package typechecks, independent review, installed help/version and file hashes. The feature artifact retains the earlier live search, browser and desktop checks.
+- **Preserved:** both provider profiles, Grok as the active provider, all four credential/provider files, connector settings, running RD-X-96 session, upstream `main`, and user-owned `.codeboarding/`. Settings fingerprints match before and after installation.
+- **Local only:** no push or publication. Public release/tag 1.5.1 remains unchanged. The npm launcher package itself still identifies as 1.5.1; its installed-binary metadata correctly selects the local preview.
 
 ## Pick up here
 
-Use `C:/Users/S.D/.traycer/worktrees/estarinazx__codebuff-modded/feature-rdx-web-computer-tools`. Launch its `cli/bin/rdx-web-tools.cmd` for the preview; the wrapper enables trusted system certificates only for that process. `docs/computer-tools.md` owns usage, dependencies and access behavior.
+Use global `rdx`. Open a new session to load the upgrade; an already-running session was deliberately left running on its old executable. Web search uses the saved Codex profile without changing Grok. `/browser on` and `/computer on` enable local tools; status/off controls are in [tool documentation](../docs/computer-tools.md).
 
-If asked to integrate or release, read [MERGE-STRATEGY.md](../MERGE-STRATEGY.md), retain `main` as the upstream mirror, preserve provider/auth settings, and use a new version for publication. Do not restart the old release relay. User-owned `.codeboarding/` in the primary checkout stays untouched.
+No active work — start from the user's next task. Follow [MERGE-STRATEGY.md](../MERGE-STRATEGY.md) if asked to publish a stable release, using a new version and preserving the old tag.
 
-## Recent context
+## Installation notes
 
-- The user rejected requiring a Tavily/Brave/Serper key. A saved Codex subscription supplies search instead; this consumes its plan allowance.
-- PowerShell browser discovery initially timed out because npm retried an untrusted certificate chain. Scoped system trust fixed fresh downloads as well as cached startup. TLS verification and permanent settings remain intact.
-- Local tools are opt-in. First use may download pinned packages. Browser requires Node 22.15+; desktop uses uv/Python 3.13.
-- Live tests touched disposable targets. Linux/macOS control, elevated/protected Windows apps and interactive TUI behavior were not live exercised. Screenshot conversion is regression-tested; no new end-to-end Grok inference was performed.
+- Rollback files: `C:/Users/S.D/.config/manicode/backups/rdx-local-preview-20260911-005953`. Credentials were not copied into backups; only fingerprints were recorded.
+- Installed launcher has a process-scoped `BUN_OPTIONS=--use-system-ca` addition for this machine. Permanent environment/TLS settings were not changed. Preserve this local trust handling when reinstalling; npm replacement can overwrite the installed launcher.
+- Full evidence: epic `artifacts/rdx-web-computer-install/index.md`; ignored local files in `debug/local-install-1.5.2-dev.tools/`.
+- The retained feature worktree still holds the original tested build. It is not required to launch the installed binary.
 
 ## Related
 

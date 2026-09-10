@@ -17,7 +17,7 @@ An additional service key was explicitly rejected. A real request demonstrated t
 
 ## Reversibility
 
-The upgrade is isolated on `feature/rdx-web-computer-tools`, with no global installation or publication. Local control is opt-in; provider credentials remain separate from connector settings.
+The upgrade was subsequently merged into `modded` and installed locally at the user's request. The installation artifact records rollback files. No publication occurred. Local control remains opt-in; provider credentials stay separate from connector settings.
 
 ## Related
 

@@ -7,9 +7,9 @@ tags: [moc, codebuff, llm-proxy, byok]
 
 # RD-X-96 (fork) — Map
 
-**Prepared upgrade:** `feature/rdx-web-computer-tools` adds subscription search plus local browser/Windows control without another service API key. The tested Windows preview is `1.5.2-dev.tools`; integration and installation are pending. See [[active-work]] and [tool usage](../docs/computer-tools.md).
+**Local upgrade installed:** `modded` includes subscription search plus local browser/Windows control without another service API key. Global `rdx` runs `1.5.2-dev.tools`; provider profiles are preserved. See [[active-work]] and [tool usage](../docs/computer-tools.md).
 
-**RD-X-96 v1.5.1 is published on [GitHub](https://github.com/EstarinAzx/codebuff-modded/releases/tag/v1.5.1) and [npm](https://www.npmjs.com/package/codebuff-mod/v/1.5.1), and installed globally.** Launch with `rdx`; `cbm` and `codebuff-mod` remain aliases. The current design keeps Ghostline's layout with a hot-pink animated banner/headings, cyan reply frames/code accents and a transparent terminal canvas. The large logo has no duplicate small label; compact fallbacks remain. See [[active-work]] for verification and release limits. [Product](../PRODUCT.md), [selected design](../DESIGN.md), [original spec](../docs/prd.md), and [workflow](../docs/design/cbm-01-workflow.md).
+**RD-X-96 v1.5.1 remains published on [GitHub](https://github.com/EstarinAzx/codebuff-modded/releases/tag/v1.5.1) and [npm](https://www.npmjs.com/package/codebuff-mod/v/1.5.1).** The newer preview above is installed locally. Launch with `rdx`; `cbm` and `codebuff-mod` remain aliases. The current design keeps Ghostline's layout with a hot-pink animated banner/headings, cyan reply frames/code accents and a transparent terminal canvas. The large logo has no duplicate small label; compact fallbacks remain. See [[active-work]] for verification and release limits. [Product](../PRODUCT.md), [selected design](../DESIGN.md), [original spec](../docs/prd.md), and [workflow](../docs/design/cbm-01-workflow.md).
 
 Upstream Codebuff is a composable coding-agent monorepo where a hosted backend proxies LLM requests to upstream providers and bills users in credits via BigQuery + Stripe. CLI is a TUI built on OpenTUI + React. Also ships `freebuff`, the free tier.
 
