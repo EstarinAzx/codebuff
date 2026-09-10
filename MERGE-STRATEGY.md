@@ -376,9 +376,9 @@ Schema carries `oauthProfileId?: string` on every `BYOKProfile`. The `codex` pre
 
 #### `cli/src/types/theme-system.ts` + `cli/src/utils/theme-system.ts` + `cli/src/components/message-block.tsx`
 
-`aiPanelBorder?: string` (optional, amber) on `ChatTheme`. Fallback in `message-block.tsx`: `theme.aiPanelBorder ?? theme.secondary ?? theme.aiLine ?? theme.foreground`.
+`aiPanelBorder?: string` on `ChatTheme`, using a quiet neutral frame for Ghostline. Fallback in `message-block.tsx`: `theme.aiPanelBorder ?? theme.secondary ?? theme.aiLine ?? theme.foreground`.
 
-**Resolve:** keep the optional field + defaults + fallback chain. Optional means no upstream test-fixture patching needed.
+**Resolve:** keep the optional field + product defaults + fallback chain. Optional means no upstream test-fixture patching needed. Keep `ghostlineTheme` and the `IS_FREEBUFF` choice in `theme-system.ts`, automatic detection/overrides, and theme-correct opaque input repainting. Preserve inverse label foregrounds on primary-filled buttons, answer choices, and ads: the light Ghostline accent needs a light foreground, not a restored hard-coded black. Agent headers use the quiet collapsed/expanded surface roles. Run the Ghostline renderer check alongside branding after a merge.
 
 #### `cli/src/init/init-app.ts`
 
@@ -392,9 +392,9 @@ Fork pushes the active BYOK profile + bindings at boot (`setActiveByokProfile(..
 
 The new required display identity is **CBM-01**, with zero and no spaces. The 2026-09-10 rebrand is tracked in [docs/prd.md](./docs/prd.md); the previous CODEBUFF - M1 banner and `92` width threshold describe the old implementation, not a merge requirement.
 
-**Resolve:** preserve the fork's display-brand constant and full/small/text logo behavior, including short-height fallback. Use widths measured from the replacement art. Re-anchor the change at the shared constants/logo seams if upstream moves them. Inspect title, help, warnings, exported conversations, OAuth callback display copy, and launcher messages as well as the banner.
+**Resolve:** preserve the fork's display-brand constant and Ghostline's single-line wordmark. Freebuff retains measured full/small/text art selection, including short-height fallback. Re-anchor the change at the shared constants/logo seams if upstream moves them. Inspect title, help, warnings, exported conversations, OAuth callback display copy, and launcher messages as well as startup.
 
-Implemented on `feature/cbm-01` at `732e25e98` (not yet integrated): `DISPLAY_NAME` and `CLI_COMMAND` in `cli/src/utils/constants.ts`, measured `LOGO_VARIANTS` in `use-logo.tsx`, and fork art in `cli/src/login/constants.ts`. Keep `suppressCommitAttribution: true` on the three terminal-capable `mod-default`, `mod-lite`, and `mod-max` roots; shared tool-description defaults remain intact. The branding regression checks the reachable child closure so a new terminal-capable child cannot silently restore old generated commit footers.
+Implemented through `b8e37262f`: `DISPLAY_NAME` and `CLI_COMMAND` in `cli/src/utils/constants.ts`, compact fork wordmark in `use-logo.tsx`, and measured `LOGO_VARIANTS` for Freebuff. Keep `suppressCommitAttribution: true` on the three terminal-capable `mod-default`, `mod-lite`, and `mod-max` roots; shared tool-description defaults remain intact. The branding regression checks the reachable child closure so a new terminal-capable child cannot silently restore old generated commit footers.
 
 Keep original notices and truthful package, import, environment, storage, protocol, binary, and download identifiers. A display rebrand is not a distribution migration. Keep provider/auth behavior and the separate Freebuff build paths working. Run the final branding regression named by [the rebrand workflow](./docs/design/cbm-01-workflow.md) after future upstream merges; typechecks alone do not catch restored labels.
 
