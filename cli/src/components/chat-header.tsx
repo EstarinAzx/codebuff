@@ -23,7 +23,7 @@ export const ChatHeader = memo(function ChatHeader({
   const blockColor = getLogoBlockColor(theme.name)
   const accentColor = getLogoAccentColor(theme.name)
   const { applySheenToChar } = useSheenAnimation({
-    enabled: animationEnabled,
+    enabled: IS_FREEBUFF && animationEnabled,
     logoColor: theme.foreground,
     accentColor,
     blockColor,
@@ -32,10 +32,10 @@ export const ChatHeader = memo(function ChatHeader({
     setSheenPosition,
   })
   const { component: logoComponent } = useLogo({
-    // PORT: the fork's wide logo uses the full header, outside the content column.
-    availableWidth: IS_FREEBUFF ? contentMaxWidth : terminalWidth - 4,
+    availableWidth: contentMaxWidth,
     maxHeight: IS_FREEBUFF ? undefined : Math.max(1, terminalHeight - 12),
     accentColor,
+    textColor: IS_FREEBUFF ? undefined : theme.primary,
     blockColor,
     applySheenToChar,
   })
@@ -52,17 +52,17 @@ export const ChatHeader = memo(function ChatHeader({
       <box
         style={{
           flexDirection: 'column',
-          marginBottom: 1,
-          marginTop: 2,
+          marginTop: IS_FREEBUFF ? 2 : 0,
+          marginBottom: IS_FREEBUFF ? 1 : 0,
         }}
       >
         {logoComponent}
       </box>
-      <text style={{ wrapMode: 'word', marginBottom: 1, fg: theme.foreground }}>
+      {IS_FREEBUFF && <text style={{ wrapMode: 'word', marginBottom: 1, fg: theme.foreground }}>
         {DISPLAY_NAME} will run commands on your behalf
         to help you build.
-      </text>
-      <text style={{ wrapMode: 'word', marginBottom: 1, fg: theme.foreground }}>
+      </text>}
+      <text style={{ wrapMode: 'word', marginBottom: 1, fg: IS_FREEBUFF ? theme.foreground : theme.muted }}>
         Directory{' '}
         <TerminalLink
           text={formatCwd(projectRoot)}

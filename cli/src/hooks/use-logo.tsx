@@ -2,7 +2,7 @@ import React, { useMemo } from 'react'
 
 import { LOGO, LOGO_SMALL, SHADOW_CHARS } from '../login/constants'
 import { parseLogoLines } from '../login/utils'
-import { DISPLAY_NAME } from '../utils/constants'
+import { DISPLAY_NAME, IS_FREEBUFF } from '../utils/constants'
 
 interface UseLogoOptions {
   /**
@@ -60,7 +60,7 @@ const LOGO_VARIANTS = [LOGO, LOGO_SMALL].map((art) => {
   }
 })
 
-/** Render the largest complete logo that fits, otherwise use the product name. */
+/** Ghostline stays compact; Freebuff uses the largest complete art that fits. */
 export const useLogo = ({
   availableWidth,
   applySheenToChar,
@@ -71,10 +71,10 @@ export const useLogo = ({
 }: UseLogoOptions): LogoResult => {
   const rawLogoString = useMemo(
     () =>
-      LOGO_VARIANTS.find(
+      (IS_FREEBUFF ? LOGO_VARIANTS.find(
         ({ width, height }) =>
           width <= availableWidth && (maxHeight == null || height <= maxHeight),
-      )?.art ?? DISPLAY_NAME,
+      )?.art : undefined) ?? DISPLAY_NAME,
     [availableWidth, maxHeight],
   )
 

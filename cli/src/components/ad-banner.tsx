@@ -23,6 +23,7 @@ import React, { useState, useMemo, useEffect } from 'react'
 import { Button } from './button'
 import { useTerminalDimensions } from '../hooks/use-terminal-dimensions'
 import { useTheme } from '../hooks/use-theme'
+import { IS_FREEBUFF } from '../utils/constants'
 import { BORDER_CHARS, INVERTED_CTA_FG } from '../utils/ui-constants'
 
 import type { AdResponse } from '../hooks/use-gravity-ad'
@@ -286,7 +287,7 @@ export const AdCard: React.FC<{
       >
         <text
           style={{
-            fg: INVERTED_CTA_FG,
+            fg: IS_FREEBUFF ? INVERTED_CTA_FG : theme.agentContentBg,
             bg: isHovered ? theme.primary : theme.muted,
             attributes: TextAttributes.BOLD,
           }}
@@ -478,7 +479,7 @@ export const DockAdCard: React.FC<{
       >
         <text
           style={{
-            fg: isCtaHovered ? INVERTED_CTA_FG : theme.primary,
+            fg: isCtaHovered ? IS_FREEBUFF ? INVERTED_CTA_FG : theme.agentContentBg : theme.primary,
             bg: isCtaHovered ? theme.primary : undefined,
             wrapMode: 'none',
           }}
@@ -614,7 +615,7 @@ export const DockDetailPanel: React.FC<{
         >
           <text
             style={{
-              fg: isCtaHovered ? INVERTED_CTA_FG : theme.primary,
+              fg: isCtaHovered ? IS_FREEBUFF ? INVERTED_CTA_FG : theme.agentContentBg : theme.primary,
               bg: isCtaHovered ? theme.primary : undefined,
               wrapMode: 'none',
             }}

@@ -1,5 +1,6 @@
 import { describe, test, expect } from 'bun:test'
 import stringWidth from 'string-width'
+import { IS_FREEBUFF } from '../../utils/constants'
 
 import {
   type Segment,
@@ -105,7 +106,7 @@ describe('SegmentedControl - processSegments', () => {
       processed.map((p) => [p.id, p]),
     )
 
-    expect(map['active-DEFAULT'].leftBorderColor).toBe(theme.foreground)
+    expect(map['active-DEFAULT'].leftBorderColor).toBe(IS_FREEBUFF ? theme.foreground : theme.primary)
     expect(map['DEFAULT'].leftBorderColor).toBe(theme.border)
   })
 
@@ -121,7 +122,7 @@ describe('SegmentedControl - processSegments', () => {
     )
 
     expect(map.MAX.isHovered).toBe(true)
-    expect(map.MAX.leftBorderColor).toBe(theme.foreground)
+    expect(map.MAX.leftBorderColor).toBe(IS_FREEBUFF ? theme.foreground : theme.primary)
     expect(map.DEFAULT.leftBorderColor).toBe(theme.border)
   })
 

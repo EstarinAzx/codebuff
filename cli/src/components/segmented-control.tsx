@@ -3,6 +3,7 @@ import stringWidth from 'string-width'
 
 import { Button } from './button'
 import { useTheme } from '../hooks/use-theme'
+import { IS_FREEBUFF } from '../utils/constants'
 
 import type { ChatTheme } from '../types/theme-system'
 
@@ -157,7 +158,7 @@ export const processSegments = (
     const isBold = !!(seg.isBold || isHovered || (isSelected && isHighlighted))
 
     // Colors
-    const frameColor = isHighlighted ? theme.foreground : theme.border
+    const frameColor = isHighlighted ? IS_FREEBUFF ? theme.foreground : theme.primary : theme.border
     const textMuted = isDisabled || (isSelected && !isHighlighted)
     const textColor = textMuted ? theme.muted : theme.foreground
 

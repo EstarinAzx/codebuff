@@ -25,6 +25,23 @@ The selected HTML uses these OKLCH roles: accent `82% 0.105 295`, foreground `95
 
 Keep a contrasting violet light-theme counterpart, terminal color fallbacks, and user overrides. Preserve the existing terminal-background integration and opaque repaint behavior where required to avoid stale text. Check actual foreground/background pairs; the preview's decorative border contrast is not an accessibility target for focus or input controls.
 
+### Implemented terminal values
+
+The dark anchors are converted from OKLCH to sRGB, clipped to the sRGB gamut and rounded to 8-bit channels. In particular, the accent's blue channel reaches the gamut boundary. OpenTUI receives supported hex values, not CSS OKLCH strings.
+
+| Role | Dark | Light |
+| --- | --- | --- |
+| Focus / identity | `#c9b7ff` | `#644b9e` |
+| Foreground | `#eceef5` | `#1f2129` |
+| Muted text | `#a6abb8` | `#545864` |
+| Opaque base fallback | `#0b0d13` | `#f7f8fc` |
+| Surface | `#13161d` | `#eceef5` |
+| Selection surface | `#30283e` | `#dfdbed` |
+| Decorative divider / prose frame | `#2f333d` | `#c9cbd5` |
+| Actionable inactive border | `#626575` | `#767987` |
+
+The canvas remains terminal-transparent. The input uses the reported terminal background when available, otherwise the opaque base above; this retains repainting of cleared text. Character selection uses the accent as background and the opaque base as foreground. Label text, muted text, accents and semantic feedback are checked against base, surface and selected surfaces at 4.5:1 or better. Actual captured selected-character foreground/background pairs are checked too. Limited-color cursor fallbacks are `fuchsia` in dark mode and `purple` in light mode; OpenTUI continues handling terminal color capability negotiation. Freebuff keeps its existing palette and fallbacks. User color overrides still apply through the existing theme builder.
+
 ## States and scope
 
 Apply this to the actual CBM-01 home/start screen, active conversation and tools, focused/unfocused input, provider/model controls, and warning/error/success messages. Keep the separate Freebuff build's identity and theme behavior. No provider/auth changes belong here.

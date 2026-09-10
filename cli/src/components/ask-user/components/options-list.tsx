@@ -8,6 +8,7 @@ import React, { memo } from 'react'
 
 import { QuestionOption } from './question-option'
 import { useTheme } from '../../../hooks/use-theme'
+import { IS_FREEBUFF } from '../../../utils/constants'
 import { Button } from '../../button'
 import { CUSTOM_OPTION_INDEX, SYMBOLS } from '../constants'
 
@@ -49,7 +50,8 @@ export const OptionsList: React.FC<OptionsListProps> = memo(
       : isCustomSelected
         ? SYMBOLS.SELECTED
         : SYMBOLS.UNSELECTED
-    const customFg = isCustomFocused ? '#000000' : isCustomSelected ? selectedFg : theme.muted
+    const focusedFg = IS_FREEBUFF ? '#000000' : theme.agentContentBg
+    const customFg = isCustomFocused ? focusedFg : isCustomSelected ? selectedFg : theme.muted
     const customAttributes = isCustomFocused || isCustomSelected ? TextAttributes.BOLD : undefined
 
     const handleOptionSelect = (optionIndex: number) => {
@@ -117,7 +119,7 @@ export const OptionsList: React.FC<OptionsListProps> = memo(
           {isCustomFocused && (
             <text
               style={{
-                fg: '#000000',
+                fg: focusedFg,
                 marginLeft: 2,
               }}
             >
