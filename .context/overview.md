@@ -5,7 +5,7 @@ updated: 2026-09-11
 tags: [moc, codebuff, llm-proxy, byok]
 ---
 
-# RD-X-96 (fork) ? Map
+# RD-X-96 (fork) — Map
 
 **RD-X-96 v1.6.0 is published on [GitHub](https://github.com/EstarinAzx/codebuff-modded/releases/tag/v1.6.0) and [npm](https://www.npmjs.com/package/codebuff-mod/v/1.6.0), and installed globally.** Run `rdx`; `cbm` and `codebuff-mod` remain aliases. This release adds Codex subscription search and opt-in browser/Windows desktop control without another service API key, plus the MCP schema fix. See [[active-work]] for release evidence and [tool documentation](../docs/computer-tools.md) for usage.
 
