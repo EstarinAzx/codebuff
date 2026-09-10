@@ -40,9 +40,20 @@ Presets:
 | `together` | meta-llama/Llama-3.3-70B-Instruct-Turbo | api.together.xyz |
 | `groq` | llama-3.3-70b-versatile | api.groq.com |
 | `grok` | grok-4.6 | SuperGrok subscription; `/providers:add grok [name]`, no API key |
+| `codex` | Account model catalog | ChatGPT subscription; `/providers:add codex [name]`, no API key |
 | `custom-openai` | (yours) | Any OpenAI-compatible endpoint — needs `<baseUrl>` arg |
 
 Then run any coding task. RD-X-96 uses the model from your active profile and sends requests directly to your provider.
+
+### Web search, browser and desktop control
+
+A saved Codex profile supplies web search and source URLs without another search-service API key. Your main model can remain Grok or another provider. Search uses the Codex plan's allowance; the active Codex profile is preferred, otherwise the first configured Codex profile is used.
+
+`/browser on` enables local browser control. It requires Node.js 22.15+ and Microsoft Edge on Windows or Google Chrome on Linux. `/computer on` enables Windows desktop control and requires `uv`; Python 3.13 and the pinned server are downloaded when needed. Both features start disabled and need no service API key. First setup needs internet.
+
+Use `/browser` or `/computer` for status, and `/browser off` or `/computer off` to interrupt the active run and close that connector. Enabled tools act with your user access without per-action confirmation. Managed browser and desktop tools are excluded from PLAN mode. Existing provider profiles and user-defined MCP configuration are preserved.
+
+This release ships Windows x64, Linux x64 and Linux arm64 binaries. See [tool documentation](https://github.com/EstarinAzx/codebuff-modded/blob/modded/docs/computer-tools.md) for supported actions, dependency versions and configuration.
 
 ### Grok subscription login
 
@@ -64,6 +75,8 @@ The integration follows the device-code protocol inspected in [pi-grok](https://
 | `/providers:refresh-models` | Clear the active profile's models cache (OAuth: 5 minutes; other providers: 24 hours) |
 | `/model` | Show current model + live-probe available ids |
 | `/model <id>` | Swap model on the active profile |
+| `/browser [on\|off\|status]` | Enable, stop or inspect local browser control |
+| `/computer [on\|off\|status]` | Enable, stop or inspect Windows desktop control |
 | `/mode:default` `/mode:lite` `/mode:max` `/mode:plan` | Switch agent mode (mod-* templates in `.agents/`) |
 
 Your profiles live at `~/.config/manicode/providers.json` (chmod 0600). API keys are masked in all log output.

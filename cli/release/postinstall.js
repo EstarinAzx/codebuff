@@ -25,14 +25,16 @@ for (const name of staleBinaries) {
 console.log('\n');
 console.log('🎉 RD-X-96 installed.');
 console.log('\n');
-console.log('BYOK fork — bring your own API key.');
+console.log('BYOK fork — connect your own provider or subscription.');
 console.log('\n');
 console.log('Quick start:');
 console.log('  1. cd to your project directory');
 console.log('  2. Run: rdx');
 console.log('  3. In the CLI: /providers:add <preset> <apiKey>');
+console.log('     Subscription login: /providers:add codex or /providers:add grok');
 console.log('     Presets: openai, anthropic, openrouter, opencode-go, deepseek, gemini,');
 console.log('              mistral, together, groq, custom-openai');
+console.log('  4. Optional local tools: /browser on, /computer on (Windows)');
 console.log('\n');
 console.log('Repo: https://github.com/EstarinAzx/codebuff-modded');
 console.log('\n');

@@ -5,15 +5,15 @@ updated: 2026-09-11
 
 # Pick up
 
-Read [[active-work]]. **The MCP first-request schema crash is fixed and installed locally.** `rdx`, `cbm` and `codebuff-mod` report `1.5.2-dev.tools.1`. No active work remains. Restart any old CLI session before retrying; computer control remains enabled and browser control remains disabled, matching the user's saved settings.
+The user confirmed computer-use smoke testing passed and authorized publishing RD-X-96. Release **1.6.0** is in preparation; follow this epic's `artifacts/rd-x-96-release-1-6-0/index.md` for the current gate/state.
 
-Root cause: deep copying Zod erased private schema state. The fixed pipeline preserves Zod instances and original JSON Schema, while retaining existing validation. It also removes internal step flags before external validation. No dependency, model, provider or credential change was required.
+The runtime/schema fix is already integrated and installed as preview `1.5.2-dev.tools.1`. The release promotes that source, its tested system-certificate launcher behavior and updated package documentation. Release checks passed: 252 tests, common/SDK/CLI/runtime typechecks, frozen lockfile check and five-file npm dry run. The new version is available; npm identity is tsd47216.
 
-239 regression tests, runtime/SDK/CLI typechecks, independent review, real 43-schema preparation and an actual Grok desktop-tool round trip passed. A second live check ran through the rebuilt public SDK and complete agent loop. Installed binary/WASM hashes and all aliases were verified; all six provider/credential/connector-setting fingerprints remain unchanged.
+Finish the frozen source/build review, build and verify Windows x64/Linux x64/Linux arm64 archives, push `modded` and the fixed release tag, upload GitHub assets before npm, then verify public artifacts and the installed version. WSL is not installed; do not claim Linux runtime execution. Cached Linux Bun compilers must match the fresh registry integrity values.
 
-The epic's `artifacts/rdx-mcp-schema-fix/index.md` owns evidence and rollback details. The prior preview-install and release artifacts remain historical evidence. No push or publication occurred. Preserve the old 1.5.1 release tag, upstream `main` and user-owned `.codeboarding/`. Follow [MERGE-STRATEGY.md](../MERGE-STRATEGY.md) if asked to publish.
+Publication is authorized. Preserve npm account/package security; if native npm web approval is needed, show its complete live URL on its own line promptly. Never store live approval URLs or credentials in artifacts. Preserve all provider/credential/connector settings, existing user sessions, upstream `main`, old release tags and user-owned `.codeboarding/`.
 
 ## Related
 
 - [[overview]]
-- [[active-work]]
+- [[active-work]] — completed preview/schema-fix context

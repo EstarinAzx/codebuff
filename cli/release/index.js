@@ -73,6 +73,8 @@ function createConfig(packageName) {
 }
 
 const CONFIG = createConfig(packageName)
+// Use the same verified system trust as the local preview, scoped to this process.
+process.env.BUN_OPTIONS = ['--use-system-ca', process.env.BUN_OPTIONS].filter(Boolean).join(' ')
 const { getProxyUrl, httpGet } = createReleaseHttpClient({
   env: process.env,
   userAgent: CONFIG.userAgent,
