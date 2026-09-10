@@ -1,6 +1,6 @@
 # CBM-01 rebrand and terminal redesign
 
-Status: identity and the user-selected **C: Ghostline** are implemented and verified on `feature/cbm-01` through `b8e37262f`. Final integration is ready. Captured 2026-09-10 against `modded` at `426480b8c`. Implementation is not merged or released.
+Status: identity and the user-selected **C: Ghostline** are integrated locally into `modded` at `5cc13014d5d9d54ae49da5451775c0d82329b1fa`, with a verified local build. The controller's final baton/state handoff remains pending. No release or global installation was performed. Original scope captured 2026-09-10 against `modded` at `426480b8c`; final evidence is in ticket 03.
 
 ## Problem Statement
 
@@ -77,7 +77,7 @@ The user, not the planning agents, selected Ghostline. This does not establish a
 ## Work queue
 
 1. [01: Rebrand the complete visible CLI path](issues/01-cbm-01-identity.md), complete on `feature/cbm-01` at `732e25e98`.
-2. [02: Apply Ghostline](issues/02-cbm-01-theme.md), verified complete at `b8e37262f`.
-3. [03: Verify integration and preserve the fork through merges](issues/03-cbm-01-integration.md), ready; both implementation prerequisites passed.
+2. [02: Apply Ghostline](issues/02-cbm-01-theme.md), verified at `b8e37262f` and integrated locally by ticket 03.
+3. [03: Verify integration and preserve the fork through merges](issues/03-cbm-01-integration.md), integration scope complete; controller final baton/state handoff pending.
 
 Execution and merge rules: [workflow](design/cbm-01-workflow.md). Upstream sync and release authority: [MERGE-STRATEGY.md](../MERGE-STRATEGY.md).

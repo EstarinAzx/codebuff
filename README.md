@@ -30,7 +30,7 @@ bun run dev
 - [Rebrand scope](docs/prd.md) and [work queue](docs/prd.md#work-queue)
 - [Upstream merge strategy](MERGE-STRATEGY.md)
 
-The terminal redesign is pending a visual direction. The identity change does not select a palette or change provider behavior.
+CBM-01 uses the user-selected Ghostline terminal design, with existing provider and distribution compatibility retained.
 
 ## Upstream projects and attribution
 

@@ -402,6 +402,8 @@ Keep original notices and truthful package, import, environment, storage, protoc
 
 Use the isolated `feature/cbm-01` branch from `modded`, followed by a reviewed `--no-ff` merge into `modded` after verification. Planning and baton commits belong on `modded`; the generic ticket-loop default of writing context to `main` must not contaminate the upstream tree mirror. The user selected Ghostline; preserve the resulting compact layout and violet semantic theme from [DESIGN.md](./DESIGN.md) through future syncs. [Workflow and merge checklist](./docs/design/cbm-01-workflow.md).
 
+Completed locally on 2026-09-10 at merge `5cc13014d5d9d54ae49da5451775c0d82329b1fa` (source first parent `185b6c37e48a1350709d2770c348d911f2f75321`, feature second parent `4e505bc114b4ac905544e97fcaa0d67d1d81b4b8`). Cold review, integrated source build, CLI typecheck, identity/theme/export/streaming/provider checks and Freebuff branding passed. `main` and its upstream-matching tree were unchanged. [Ticket 03](./docs/issues/03-cbm-01-integration.md) owns exact checks, local binary provenance, limitations, and the pending controller handoff. This is not a release.
+
 #### `common/src/constants/model-config.ts`
 
 Fork deliberately does NOT add `'opencode-go'` to `ALLOWED_MODEL_PREFIXES`.
