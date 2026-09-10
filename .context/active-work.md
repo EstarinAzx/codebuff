@@ -22,7 +22,7 @@ Rebrand the standalone fork as **CBM-01** (zero, no spaces), compare cyberpunk d
 - **Done:** [ticket 01](../docs/issues/01-cbm-01-identity.md) identity cleanup implemented and independently reviewed on `feature/cbm-01`, HEAD `732e25e98`. Source ticket checkpoint matches that branch. The code remains in `C:/Users/S.D/.traycer/worktrees/estarinazx__codebuff-modded/feature-cbm-01`.
 - **Verified by controller:** 106 CLI tests, 22 Freebuff checks, 5 common and 2 runtime attribution checks, full CLI typecheck, and binary help/version. Final copy follow-up passed 7 branding checks in each product mode. Exact worker build evidence, two reproduced baseline schema failures, and tmux/live acceptance limits are in ticket 01.
 - **Done:** leg 2 implements **C: Ghostline** through `b8e37262f`, independently reviewed and controller-verified. [DESIGN.md](../DESIGN.md) has final token facts; [ticket 02](../docs/issues/02-cbm-01-theme.md) records test commands and native renderer evidence. Its worker/reviewer are archived.
-- **Next:** [ticket 03](../docs/issues/03-cbm-01-integration.md), the final cold gate and local merge. `.claude/relay/cbm-01.traycer.json` owns actual worker/request state. No further visual-choice approval is required.
+- **In flight:** [ticket 03](../docs/issues/03-cbm-01-integration.md), the final cold gate and local merge, assigned to the leg-3 integrator. `.claude/relay/cbm-01.traycer.json` owns worker/request state. The brief explicitly grants the source modded checkout for verified local integration and a local build; the controller alone updates .context/control state.
 
 ## Pick up here
 
