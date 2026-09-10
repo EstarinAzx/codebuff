@@ -394,6 +394,17 @@ export function getActiveProfile(
   return file.profiles.find((p) => p.id === file.activeProfileId) ?? null
 }
 
+/** Search may use Codex while the main model stays on another provider. */
+export function getSearchProfile(
+  filePath: string = getProvidersFilePath(),
+): ProviderProfile | null {
+  const file = readFile(filePath)
+  const profiles = file.profiles.filter(
+    (p) => p.preset === 'codex' && p.oauthProfileId,
+  )
+  return profiles.find((p) => p.id === file.activeProfileId) ?? profiles[0] ?? null
+}
+
 export function setActiveProfile(
   id: string,
   filePath: string = getProvidersFilePath(),

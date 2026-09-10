@@ -12,7 +12,13 @@ import type { MCPConfig } from '@codebuff/common/types/mcp'
 
 import { getSelectedFreebuffModel } from '../state/freebuff-model-store'
 import { getProjectRoot } from '../project-files'
-import { IS_FREEBUFF, type AgentMode } from './constants'
+import { AGENT_MODE_TO_ID, IS_FREEBUFF, type AgentMode } from './constants'
+import {
+  BROWSER_TOOL_NAMES,
+  getComputerToolsSettingsPath,
+  loadComputerToolsSettings,
+  mergeComputerTools,
+} from './computer-tools'
 import { getAgentIdForMode } from './freebuff-agent-selection'
 import { logger } from './logger'
 import * as bundledAgentsModule from '../agents/bundled-agents.generated'
@@ -319,7 +325,9 @@ export const loadLocalAgents = (
  * of any base agent (agents with IDs starting with 'base'), so users can spawn
  * their custom agents without needing to modify the base agent definition.
  */
-export const loadAgentDefinitions = (): AgentDefinition[] => {
+export const loadAgentDefinitions = (
+  computerToolsFilePath = getComputerToolsSettingsPath(),
+): AgentDefinition[] => {
   // Start with bundled agents - these are the default Codebuff agents
   const bundledAgents = getBundledAgents()
   const definitions: AgentDefinition[] = Object.values(bundledAgents).map(
@@ -360,21 +368,41 @@ export const loadAgentDefinitions = (): AgentDefinition[] => {
     }
   }
 
-  // Merge MCP servers from mcp.json into base agents
-  // This allows users to configure MCP tools that are available to the main agent
-  if (Object.keys(mcpServersCache).length > 0) {
-    for (const def of definitions) {
-      // Consider any agent with an ID starting with 'base' as a base agent
-      if (def.id.startsWith('base')) {
-        // Initialize mcpServers if not present
-        if (!def.mcpServers) {
-          def.mcpServers = {}
-        }
-        // Merge MCP servers (user config can override existing servers)
-        def.mcpServers = {
-          ...def.mcpServers,
-          ...mcpServersCache,
-        }
+  // The fork's main agents use mod-* IDs; upstream roots use base* IDs.
+  let managedServers: Record<string, MCPConfig> = {}
+  if (!IS_FREEBUFF) {
+    try {
+      managedServers = mergeComputerTools(
+        {}, loadComputerToolsSettings(computerToolsFilePath),
+        process.platform, computerToolsFilePath,
+      )
+      // A collision anywhere in the user's configuration disables that built-in.
+      for (const name of getUserMCPServerNames()) delete managedServers[name]
+    } catch (error) {
+      logger.warn(
+        { error },
+        'Local browser/desktop settings unavailable; use /browser status or /computer status',
+      )
+    }
+  }
+  const modeRootIds = new Set<string>(Object.values(AGENT_MODE_TO_ID))
+  for (const def of definitions) {
+    if (def.id.startsWith('base') || modeRootIds.has(def.id)) {
+      const isPlan = def.id === AGENT_MODE_TO_ID.PLAN || def.id === 'base2-plan'
+      const servers = {
+        ...(!isPlan ? managedServers : {}),
+        ...def.mcpServers,
+        ...mcpServersCache,
+      }
+      if (Object.keys(servers).length) def.mcpServers = servers
+      if (
+        !isPlan && managedServers['rdx-browser'] &&
+        !def.toolNames?.some((name) => name.startsWith('rdx-browser/'))
+      ) {
+        def.toolNames = [
+          ...(def.toolNames ?? []),
+          ...BROWSER_TOOL_NAMES.map((name) => `rdx-browser/${name}` as const),
+        ]
       }
     }
   }
@@ -471,4 +499,13 @@ export const __resetLocalAgentRegistryForTests = (): void => {
  */
 export const getLoadedMCPServers = (): Record<string, MCPConfig> => {
   return { ...mcpServersCache }
+}
+
+/** Names owned by existing agent/config definitions, before built-ins are merged. */
+export const getUserMCPServerNames = (): string[] => {
+  return [...new Set([
+    ...Object.keys(mcpServersCache),
+    ...[...Object.values(getBundledAgents()), ...getUserAgentDefinitions()]
+      .flatMap((def) => Object.keys(def.mcpServers ?? {})),
+  ])]
 }

@@ -13,6 +13,9 @@ import {
   handleProposalsOff,
 } from './ads'
 import { handleCopyConversationCommand } from './copy-conversation'
+import { handleComputerToolsCommand } from './computer-tools'
+import { getUserMCPServerNames } from '../utils/local-agent-registry'
+import { isComputerToolSupported } from '../utils/computer-tools'
 import { handleExportConversationCommand } from './export-conversation'
 import { handleHelpCommand } from './help'
 import { handleImageCommand } from './image'
@@ -232,6 +235,22 @@ const FREEBUFF_ONLY_COMMANDS = new Set([
 ])
 
 const ALL_COMMANDS: CommandDefinition[] = [
+  ...(['browser', 'computer'] as const)
+    .filter((kind) => !IS_FREEBUFF && isComputerToolSupported(kind))
+    .map((kind) => defineCommandWithArgs({
+      name: kind,
+      handler: async (params, args) => {
+        params.saveToHistory(params.inputValue.trim())
+        clearInput(params)
+        if (args.trim().toLowerCase() === 'on') {
+          params.setMessages((prev) => [...prev, getSystemMessage(
+            `Enabling local ${kind} access. Actions run as your user without per-action confirmation. Checking tools; first use may download dependencies. /${kind} off disables it.`,
+          )])
+        }
+        const result = await handleComputerToolsCommand(kind, args, { existingServerNames: getUserMCPServerNames() })
+        params.setMessages((prev) => [...prev, getSystemMessage(result)])
+      },
+    })),
   defineCommand({
     name: 'ads:enable',
     handler: (params) => {

@@ -83,6 +83,7 @@ export function extractSubagentContextParams(
     // AgentRuntimeDeps - Other
     logger: params.logger,
     fetch: params.fetch,
+    webSearch: params.webSearch,
 
     // AgentRuntimeScopedDeps - Client (WebSocket)
     handleStepsLogChunk: params.handleStepsLogChunk,

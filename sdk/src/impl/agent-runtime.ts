@@ -145,6 +145,7 @@ export function getAgentRuntimeImpl(
     logger: logger ?? noopLogger,
     traceWriter,
     fetch: globalThis.fetch,
+    webSearch: getForkHooks().getWebSearch?.(),
 
     // Client (WebSocket)
     handleStepsLogChunk,

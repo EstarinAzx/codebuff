@@ -1,17 +1,17 @@
----
+﻿---
 type: handoff
-updated: 2026-09-10
+updated: 2026-09-11
 ---
 
 # Pick up
 
-Read [[active-work]]. **No active work: RD-X-96 v1.5.1 is published on GitHub and npm, and installed globally.** `rdx`, `cbm` and `codebuff-mod` each report 1.5.1. The release source/tag is fixed at `0f688c0bfbf1cf95206c91a738536d52792b361d`. This epic's `artifacts/rd-x-96-release-1-5-1/index.md` owns publication, integrity and installation evidence.
+Read [[active-work]]. **The requested search/browser/Windows upgrade is implemented and verified on `feature/rdx-web-computer-tools`.** Worktree: `C:/Users/S.D/.traycer/worktrees/estarinazx__codebuff-modded/feature-rdx-web-computer-tools`. Preview launcher: `cli/bin/rdx-web-tools.cmd`, version `1.5.2-dev.tools`.
 
-The user completed npm's native approval. All three public archives and the public npm tarball match the prepared files. Installed Windows binary/WASM hashes match the verified build, and all four provider/credential files retain their original hashes. Do not restart the completed publication or old implementation relay.
+The user wanted all three capabilities without another API key. Codex supplies search while Grok remains the main model. `/browser on` and `/computer on` enable local tools; status/off commands are in the feature worktree's `docs/computer-tools.md`. PLAN receives no automatic local-control tools.
 
-Use global `rdx` for the shipped build. Retained `cli/bin/rdx*.exe` previews may report older development versions. Current product/design requirements are in [PRODUCT.md](../PRODUCT.md) and [DESIGN.md](../DESIGN.md). `.codeboarding/` is user-owned; preserve original notices and the upstream-tree mirror `main`.
+190 focused tests, four package typechecks, live sourced search, browser/desktop actions and screenshots, independent review, Windows build and help/version checks passed. This epic's `artifacts/rdx-web-computer-tools/index.md` owns evidence and delivery state.
 
-Before another release, follow [MERGE-STRATEGY.md](../MERGE-STRATEGY.md) with a new version: GitHub assets before npm, native publishing approval, public-package and installed-version verification. Show npm's full live authentication URL on its own line when needed. Preserve account security, provider settings and TLS verification.
+**Integration, global installation and publication were not performed.** Global `rdx` still launches the completed 1.5.1 release. If asked to integrate/install/publish, continue from the feature branch and follow [MERGE-STRATEGY.md](../MERGE-STRATEGY.md). Keep release tag `0f688c0bfbf1cf95206c91a738536d52792b361d` fixed, preserve `main` as the upstream-tree mirror and provider/auth/TLS settings. Leave user-owned `.codeboarding/` intact.
 
 ## Related
 

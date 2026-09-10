@@ -3,6 +3,7 @@ import os from 'os'
 import path from 'path'
 
 import { validateAgents } from '@codebuff/sdk'
+import { AGENT_MODE_TO_ID } from '../../utils/constants'
 import { describe, test, expect, beforeEach, afterEach, mock } from 'bun:test'
 
 // Mock the logger to prevent analytics initialization errors in tests
@@ -84,6 +85,53 @@ describe('Local Agent Integration', () => {
     expect(
       definitions.find((d) => d.id.startsWith('test-empty-')),
     ).toBeUndefined()
+  })
+
+  test('local connectors reach fork mode roots and honor off plus user MCP collisions', async () => {
+    mkdirSync(agentsDir, { recursive: true })
+    writeAgentFile(agentsDir, 'mod-default.ts', `export default {
+      id: 'mod-default', model: '${MODEL_NAME}', toolNames: [],
+      instructionsPrompt: 'Test root'
+    }`)
+    writeAgentFile(agentsDir, 'mod-lite.ts', `export default {
+      id: 'mod-lite', model: '${MODEL_NAME}', toolNames: ['rdx-browser/browser_snapshot'],
+      instructionsPrompt: 'Restricted test root'
+    }`)
+    const settingsPath = path.join(tempDir, 'computer-tools.json')
+    writeFileSync(settingsPath, JSON.stringify({ browser: true, computer: false }))
+    await initializeAgentRegistry()
+    let root = loadAgentDefinitions(settingsPath).find((def) => def.id === 'mod-default')!
+    expect(root.mcpServers?.['rdx-browser']).toMatchObject({ command: 'npx' })
+    expect(root.toolNames).toContain('rdx-browser/browser_click')
+    expect(root.toolNames).not.toContain('rdx-browser/browser_run_code_unsafe')
+    expect(loadAgentDefinitions(settingsPath).find((def) => def.id === 'mod-lite')!.toolNames).toEqual(['rdx-browser/browser_snapshot'])
+
+    writeFileSync(settingsPath, JSON.stringify({ browser: false, computer: false }))
+    root = loadAgentDefinitions(settingsPath).find((def) => def.id === 'mod-default')!
+    expect(root.mcpServers?.['rdx-browser']).toBeUndefined()
+
+    writeFileSync(path.join(agentsDir, 'mcp.json'), JSON.stringify({ mcpServers: {
+      'rdx-browser': { command: 'user-browser', args: [] },
+    } }))
+    writeFileSync(settingsPath, JSON.stringify({ browser: true, computer: false }))
+    await initializeAgentRegistry()
+    root = loadAgentDefinitions(settingsPath).find((def) => def.id === 'mod-default')!
+    expect(root.mcpServers?.['rdx-browser']).toMatchObject({ command: 'user-browser' })
+  })
+
+  test('managed connectors preserve the shipped PLAN read-only boundary', async () => {
+    const settingsPath = path.join(tempDir, 'computer-tools.json')
+    writeFileSync(settingsPath, JSON.stringify({ browser: true, computer: true }))
+    await initializeAgentRegistry()
+    const definitions = loadAgentDefinitions(settingsPath)
+    for (const mode of ['DEFAULT', 'LITE', 'MAX'] as const) {
+      const root = definitions.find((def) => def.id === AGENT_MODE_TO_ID[mode])!
+      expect(root.mcpServers?.['rdx-browser']).toBeDefined()
+    }
+    const plan = definitions.find((def) => def.id === AGENT_MODE_TO_ID.PLAN)!
+    expect(plan.mcpServers?.['rdx-browser']).toBeUndefined()
+    expect(plan.mcpServers?.['rdx-computer']).toBeUndefined()
+    expect(plan.toolNames?.some((name) => name.startsWith('rdx-browser/'))).toBe(false)
   })
 
   test('skips files lacking displayName/id metadata', async () => {

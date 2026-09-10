@@ -20,6 +20,7 @@ import {
 
 import type { CiEnv, ClientEnv } from '@codebuff/common/types/contracts/env'
 import type { Logger } from '@codebuff/common/types/contracts/logger'
+import type { WebSearchFn } from '@codebuff/common/types/contracts/agent-runtime'
 
 // ------------------------------ Backend gate ------------------------------- //
 
@@ -42,14 +43,17 @@ export function isBackendConfigured(params: {
 
 // --------------------------- Tool advertisement gate ------------------------ //
 
-// Without any search key web_search can only fail — strip it from templates so
+// Without subscription search or a search key, web_search can only fail — strip it so
 // agents never advertise (or burn a turn on) a dead tool. read_docs stays:
 // Context7 works keyless. Untouched templates pass through by reference.
 export function gateByokWebTools<T extends { toolNames: string[] }>(
   templates: Record<string, T>,
   ciEnv: CiEnv | undefined,
+  webSearch?: WebSearchFn,
 ): Record<string, T> {
-  if (ciEnv && availableSearchProviders(ciEnv).length > 0) return templates
+  if (webSearch || (ciEnv && availableSearchProviders(ciEnv).length > 0)) {
+    return templates
+  }
 
   const gated: Record<string, T> = {}
   for (const [key, template] of Object.entries(templates)) {

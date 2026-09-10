@@ -1,4 +1,5 @@
 import { AGENT_MODES, DISPLAY_NAME, IS_FREEBUFF } from '../utils/constants'
+import { isComputerToolSupported } from '../utils/computer-tools'
 
 import type { SkillsMap } from '@codebuff/common/types/skill'
 
@@ -57,6 +58,13 @@ const FREEBUFF_ONLY_COMMAND_IDS = new Set([
 ])
 
 const ALL_SLASH_COMMANDS: SlashCommand[] = [
+  ...(['browser', 'computer'] as const)
+    .filter((kind) => !IS_FREEBUFF && isComputerToolSupported(kind))
+    .map((kind) => ({
+      id: kind,
+      label: kind,
+      description: `Local ${kind === 'browser' ? 'browser' : 'Windows desktop'} control: on, off, status`,
+    })),
   {
     id: 'help',
     label: 'help',
