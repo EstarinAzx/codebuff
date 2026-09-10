@@ -12,10 +12,11 @@ _Original merge: 5cc13014d. Animated-banner restoration is verified locally on m
 
 ## Current focus
 
-The original rebrand and the user's animated **CBM-01** banner follow-up are complete locally. Ghostline violet and the existing sheen are restored, with responsive banner/text fallbacks and corrected project-picker sizing. [Design](../DESIGN.md) and the merge map record the correction. The old three-leg relay stays closed.
+The user authorized a new public release: **CBM-01 v1.5.0**. The reviewed identity, Ghostline and animated-banner work is complete at `954cd024a`; version manifests are being prepared. Follow the manual release sequence in `MERGE-STRATEGY.md`: verified archives, GitHub assets, then npm. Release progress is in this epic's `artifacts/cbm-01-release-1-5-0/index.md`. The old implementation relay stays closed.
 
 ## State
 
+- **In flight:** release 1.5.0. GitHub/npm latest are 1.4.1. GitHub identity is EstarinAzx; npm identity is tsd47216. Remote modded is an ancestor of the local reviewed branch. Build Windows x64, Linux x64 and Linux arm64 in an isolated release worktree; preserve the running local app and provider/credential state.
 - **Done:** animated banner and picker correction. Final focused checks: 19 pass; Freebuff 8 pass / 6 expected skips; CLI typecheck and Windows build pass. Animation/paused-state and actual-picker regressions failed before their fixes. Independent review approved after verifying 32 picker configurations. Review: `artifacts/cbm-01-banner-review` in this epic. Captures: `debug/cbm-01/animated-banner/`.
 - **Current local executable:** `cli/bin/codebuff-mod.exe`, SHA-256 `235e73948791aa1c398c63ec13c8866b1479209a2bda4994e9f5b1c3035341d7`. It still reports 1.4.1; no release/version/global installation change. This supersedes the earlier local binary hash in ticket 03. Final build log: Traycer shell `ef032729-aa27-4230-bf80-a33cd28218b5`.
 - **Done:** identity, generated-footer cleanup, compact Ghostline layout, dark/light colors, contrast corrections, and compatibility checks. The feature was merged into `modded` with `--no-ff`; `main` remains at `88c4df13a` and its tree still matches local `upstream/main`.
@@ -26,7 +27,7 @@ The original rebrand and the user's animated **CBM-01** banner follow-up are com
 
 ## Pick up here
 
-No required implementation remains. Run the rebuilt local executable to inspect the animated banner. Preserve the user's provider state and any current sessions. Do not restart the completed relay or publish a release without a new request.
+Complete the authorized 1.5.0 release, checking the release artifact and live GitHub/npm state before repeating any publication step. Publishing authorization is now present; use native npm publishing approval if requested, without changing account security. Preserve provider state and existing user sessions. Do not restart the completed implementation relay.
 
 ## Recent context
 

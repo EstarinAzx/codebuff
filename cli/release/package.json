@@ -1,6 +1,6 @@
 {
   "name": "codebuff-mod",
-  "version": "1.4.1",
+  "version": "1.5.0",
   "description": "CBM-01 is a standalone terminal coding assistant. Connect your own API-key or subscription provider and work with your chosen model.",
   "license": "MIT",
   "bin": {
