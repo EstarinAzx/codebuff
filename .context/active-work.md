@@ -1,44 +1,43 @@
----
+﻿---
 type: active-work
 project: RD-X-96
 updated: 2026-09-11
-tags: [context, active-work, local-install]
+tags: [context, active-work, release]
 ---
 
 # Active Work
 
 _Last updated: 2026-09-11 by Codex / GPT-6 (auto)_
+_Release source: c3a603da45e6e37ecac59bd8a3921545e8a23c3b_
 
 ## Current focus
 
-The search/browser/Windows preview is integrated into `modded` and installed locally as `1.5.2-dev.tools.1`. The user explicitly authorized this installation. The first-request MCP schema crash is fixed. No active implementation or installation work remains.
+**RD-X-96 v1.6.0 is published on GitHub and npm, and installed globally. No active work remains.** The user confirmed the computer-use smoke test passed, authorized publication and completed npm's native approval.
 
 ## State
 
-- **Installed:** `rdx`, `cbm` and `codebuff-mod` each report `1.5.2-dev.tools.1` from outside the repository. The installed executable and WASM match the tested preview hashes.
-- **Integrated:** feature source `ec079585bf19020dc62f36d0f1ee50a20edc6518` merged at `ba8805e49`. The sole merge conflict was the handoff note. The launcher now accepts this prerelease so it does not downgrade to 1.5.1; later stable versions remain eligible for updates.
-- **Verified:** 239 regression tests; runtime/SDK/CLI typechecks; independent review; real browser/desktop schema preparation; a real Grok tool round trip and a second real run through the rebuilt public SDK/complete agent loop. All aliases and installed hashes match the fixed build.
-- **Preserved:** both provider profiles, Grok as the active provider, all four credential/provider files, connector settings, no user process was stopped by the installer, upstream `main`, and user-owned `.codeboarding/`. Settings fingerprints match before and after installation.
-- **Local only:** no push or publication. Public release/tag 1.5.1 remains unchanged. The npm launcher package itself still identifies as 1.5.1; its installed-binary metadata correctly selects the local preview.
+- **Published:** fixed source/tag `v1.6.0`; three platform archives plus SHA256SUMS on GitHub before npm; registry-direct `latest` is 1.6.0.
+- **Verified:** anonymous downloads of all GitHub assets and the public npm tarball match the prepared files. Installed Windows executable/WASM match the release build. All five installed launcher files match the package after npm's one-byte shebang normalization.
+- **Checks:** 252 release tests (687 assertions), common/SDK/CLI/runtime typechecks, independent release review, frozen install/build checks and 11 post-build regression tests. Windows archives were independently extracted and help/version checked.
+- **Installed:** `rdx`, `cbm` and `codebuff-mod` each report 1.6.0 from outside the repository. System-certificate handling is in the public launcher; a local launcher patch is no longer needed.
+- **Preserved:** both profiles, Grok as active provider, all provider/credential/connector fingerprints, upstream `main`, old release tags and user-owned `.codeboarding/`.
+- **Evidence owner:** epic `artifacts/rd-x-96-release-1-6-0/index.md`. Ignored local files are under `cli/dist-binaries/1.6.0/` and `debug/rdx-release-1.6.0/`.
 
 ## Pick up here
 
-Use global `rdx`. Open a new session to load the upgrade; an already-running session was deliberately left running on its old executable. Web search uses the saved Codex profile without changing Grok. `/browser on` and `/computer on` enable local tools; status/off controls are in [tool documentation](../docs/computer-tools.md).
+No active work — start with the user's next task. Use global `rdx`; retained preview executables can report older development versions. Do not repeat this publication or move the release tag.
 
-No active work — start from the user's next task. Follow [MERGE-STRATEGY.md](../MERGE-STRATEGY.md) if asked to publish a stable release, using a new version and preserving the old tag.
+[Tool documentation](../docs/computer-tools.md) covers Codex subscription search, `/browser on`, `/computer on`, status/off controls and prerequisites. Current control settings were preserved. PLAN excludes automatic managed browser/desktop tools.
 
-## Schema crash fix
+For another release, follow [MERGE-STRATEGY.md](../MERGE-STRATEGY.md) with a new version: GitHub assets before npm, native approval, public artifact verification, installation and profile checks.
 
-The schema pipeline keeps immutable Zod instances and preserves original JSON Schema separately from validation. Deep copying Zod erased its private state; converting custom integer validators back to JSON erased tool parameters. Internal step flags are excluded from external argument validation. No dependency or provider changes were needed.
+## Notes and limits
 
-The epic artifact `artifacts/rdx-mcp-schema-fix/index.md` owns the fix, tests, live evidence and rollback location. Evidence is also in `debug/mcp-schema-fix/`.
-
-## Installation notes
-
-- Rollback files: `C:/Users/S.D/.config/manicode/backups/rdx-local-preview-20260911-005953`. Credentials were not copied into backups; only fingerprints were recorded.
-- Installed launcher has a process-scoped `BUN_OPTIONS=--use-system-ca` addition for this machine. Permanent environment/TLS settings were not changed. Preserve this local trust handling when reinstalling; npm replacement can overwrite the installed launcher.
-- Full evidence: epic `artifacts/rdx-web-computer-install/index.md`; ignored local files in `debug/local-install-1.5.2-dev.tools/`.
-- The retained feature worktree still holds the original tested build. It is not required to launch the installed binary.
+- Source/tag: `c3a603da45e6e37ecac59bd8a3921545e8a23c3b`. Frozen build worktree: `C:/Users/S.D/.traycer/worktrees/estarinazx__codebuff-modded/release-v1-6-0`.
+- npm web approval needs an interactive PTY on this machine. Show the complete live URL on its own line; never store it in source/artifacts or reuse an expired request. Preserve account security.
+- Windows installation downloaded the public archive. Its normal stderr progress was treated as a PowerShell error by the capture harness; subsequent quiet alias and hash checks passed.
+- Linux binaries were cross-built and format-checked, not runtime-executed; WSL/tmux are unavailable here. Live Grok and user computer-use checks ran on the equivalent preview runtime before publication. Post-publication checks covered package integrity, installation and help/version.
+- Pre-release installation rollback files remain at `C:/Users/S.D/.config/manicode/backups/before-release-1.6.0-20260911-021300`. No credentials were copied. Release and development worktrees are retained.
 
 ## Related
 

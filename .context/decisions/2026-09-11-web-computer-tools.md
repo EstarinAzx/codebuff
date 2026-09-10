@@ -17,7 +17,7 @@ An additional service key was explicitly rejected. A real request demonstrated t
 
 ## Reversibility
 
-The upgrade was subsequently merged into `modded` and installed locally at the user's request. The installation artifact records rollback files. No publication occurred. Local control remains opt-in; provider credentials stay separate from connector settings.
+The upgrade was subsequently merged into `modded`, installed locally and published as 1.6.0 after the user passed smoke testing and authorized publication. The release artifact records verification and rollback files. Local control remains opt-in; provider credentials stay separate from connector settings.
 
 ## Related
 
