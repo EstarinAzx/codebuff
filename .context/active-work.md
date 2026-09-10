@@ -21,12 +21,12 @@ Rebrand the standalone fork as **CBM-01** (zero, no spaces), compare cyberpunk d
 - **Done:** local spec, tickets, workflow, product context, and merge-map amendment saved. No public issues or release created.
 - **Done:** [ticket 01](../docs/issues/01-cbm-01-identity.md) identity cleanup implemented and independently reviewed on `feature/cbm-01`, HEAD `732e25e98`. Source ticket checkpoint matches that branch. The code remains in `C:/Users/S.D/.traycer/worktrees/estarinazx__codebuff-modded/feature-cbm-01`.
 - **Verified by controller:** 106 CLI tests, 22 Freebuff checks, 5 common and 2 runtime attribution checks, full CLI typecheck, and binary help/version. Final copy follow-up passed 7 branding checks in each product mode. Exact worker build evidence, two reproduced baseline schema failures, and tmux/live acceptance limits are in ticket 01.
-- **Resuming:** the user selected **C: Ghostline**. [DESIGN.md](../DESIGN.md) and [ticket 02](../docs/issues/02-cbm-01-theme.md) record the approved direction. Prepare a fresh leg-2 worker; `.claude/relay/cbm-01.traycer.json` owns actual dispatch state. Leg 1's worker and reviewer are archived.
+- **In flight:** leg 2 is applying the user-selected **C: Ghostline** in the existing feature worktree, based on `ac6c5110a`. [DESIGN.md](../DESIGN.md) and [ticket 02](../docs/issues/02-cbm-01-theme.md) record the approved direction. `.claude/relay/cbm-01.traycer.json` owns worker/request state; do not dispatch a duplicate.
 - **Next:** implement Ghostline and verify it, then complete [ticket 03](../docs/issues/03-cbm-01-integration.md) for local integration. No further visual-choice approval is required.
 
 ## Pick up here
 
-Resume the Traycer relay on the existing feature worktree with a fresh leg-2 worker for the approved Ghostline direction. Do not replay ticket 01. Bring the committed source planning updates into the feature branch before dispatch. Keep context and fork code off `main`; it must remain an exact upstream tree mirror. Integration follows ticket 03 after the theme passes.
+Read the live relay state and ticket 02's checkpoint in its recorded worktree. The leg-2 worker owns implementation; wait for its reply rather than dispatching another. Source planning updates are already merged into the feature branch. Do not replay ticket 01. Integration follows ticket 03 after the theme passes; `main` remains an upstream tree mirror.
 
 ## Skills for next session
 
