@@ -157,7 +157,7 @@ describe('shipped product identity', () => {
         await setup.renderOnce()
         const frame = setup.captureCharFrame()
         if (!IS_FREEBUFF) expect(frame).toContain('CBM-01')
-        if (art && IS_FREEBUFF) {
+        if (art) {
           expect(textBlock).toBe(art.split('\n').filter(Boolean).join('\n'))
           for (const line of textBlock.split('\n'))
             expect(frame).toContain(line.trimEnd())

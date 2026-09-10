@@ -1,9 +1,10 @@
 import { createTestRenderer } from '@opentui/core/testing'
 import { createRoot, flushSync } from '@opentui/react'
-import { beforeAll, expect, test } from 'bun:test'
+import { beforeAll, expect, spyOn, test } from 'bun:test'
 import React from 'react'
 import path from 'path'
-import { existsSync, mkdirSync } from 'fs'
+import { existsSync, mkdirSync, mkdtempSync, rmSync } from 'fs'
+import os from 'os'
 
 import { ChatHeader } from '../components/chat-header'
 import { initializeThemeStore, useThemeStore } from '../hooks/use-theme'
@@ -17,6 +18,9 @@ import { QuestionOption } from '../components/ask-user/components/question-optio
 import { OptionsList } from '../components/ask-user/components/options-list'
 import { AdCard } from '../components/ad-banner'
 import { MessageWithAgents } from '../components/message-with-agents'
+import { SHEEN_INTERVAL_MS } from '../login/constants'
+import { ProjectPickerScreen } from '../components/project-picker-screen'
+import * as recentProjects from '../utils/recent-projects'
 
 beforeAll(initializeThemeStore)
 
@@ -170,22 +174,22 @@ test.skipIf(IS_FREEBUFF)('filled choices, actions and agent headers keep readabl
   }
 })
 
-test.skipIf(IS_FREEBUFF)('startup leaves room for work and follows the user accent override', async () => {
+test.skipIf(IS_FREEBUFF)('startup restores the banner, fits small terminals, and follows the user accent override', async () => {
   const previous = useThemeStore.getState().theme
   useThemeStore.setState({ theme: { ...chatThemes.dark, primary: '#ddbbff' } })
   try {
-    for (const [width, height] of [[120, 30], [40, 24], [80, 12]]) {
+    for (const [width, height, occupiedRows] of [[120, 30, 7], [40, 24, 4], [80, 12, 2]]) {
       const setup = await createTestRenderer({ width, height })
       const root = createRoot(setup.renderer)
       try {
         flushSync(() => root.render(<ChatHeader projectRoot="C:/work/ghostline" animationEnabled={false} />))
         await setup.renderOnce()
         const lines = setup.captureCharFrame().split('\n').filter((line) => line.trim())
-        expect(lines.length).toBeLessThanOrEqual(3)
-        expect(lines[0]).toContain('CBM-01')
+        expect(lines.length).toBe(occupiedRows)
+        expect(lines.join('\n')).toContain('CBM-01')
         expect(lines.join('\n')).toContain('ghostline')
-        const logo = setup.captureSpans().lines.flatMap((line) => line.spans).find((span) => span.text.includes('CBM-01'))!
-        expect(logo.fg.toInts().slice(0, 3)).toEqual([221, 187, 255])
+        const spans = setup.captureSpans().lines.flatMap((line) => line.spans)
+        expect(spans.some((span) => span.text.trim() && span.fg.toInts().slice(0, 3).join(',') === '221,187,255')).toBe(true)
       } finally {
         flushSync(() => root.unmount())
         setup.renderer.destroy()
@@ -193,5 +197,86 @@ test.skipIf(IS_FREEBUFF)('startup leaves room for work and follows the user acce
     }
   } finally {
     useThemeStore.setState({ theme: previous })
+  }
+})
+
+test.skipIf(IS_FREEBUFF)('banner colors animate only while the existing animation gate is enabled', async () => {
+  const previous = useThemeStore.getState().theme
+  useThemeStore.setState({ theme: chatThemes.dark })
+  try {
+    for (const animationEnabled of [true, false]) {
+      const setup = await createTestRenderer({ width: 100, height: 30 })
+      const root = createRoot(setup.renderer)
+      const colors = () => setup.captureSpans().lines.map((line) => line.spans
+        .filter((span) => span.text.trim())
+        .map((span) => [span.text, span.fg.toInts()]))
+      try {
+        flushSync(() => root.render(<ChatHeader projectRoot="C:/work/ghostline" animationEnabled={animationEnabled} />))
+        await setup.renderOnce()
+        const before = colors()
+        const text = setup.captureCharFrame()
+        await Bun.sleep(SHEEN_INTERVAL_MS * 2 + 80)
+        await setup.renderOnce()
+        expect(setup.captureCharFrame()).toBe(text)
+        if (animationEnabled) expect(colors()).not.toEqual(before)
+        else expect(colors()).toEqual(before)
+        await saveFrame(`banner-${animationEnabled ? 'animated' : 'paused'}`, setup.captureSpans(), text, chatThemes.dark.agentContentBg)
+      } finally {
+        flushSync(() => root.unmount())
+        setup.renderer.destroy()
+      }
+    }
+  } finally {
+    useThemeStore.setState({ theme: previous })
+  }
+})
+
+test.skipIf(IS_FREEBUFF)('project picker reserves real controls before the banner and keeps recents visible', async () => {
+  const temporary = mkdtempSync(path.join(os.tmpdir(), 'cbm-picker-'))
+  if (path.dirname(temporary) !== path.resolve(os.tmpdir())) throw new Error('Unexpected test directory')
+  const previous = useThemeStore.getState().theme
+  const loadRecents = spyOn(recentProjects, 'loadRecentProjects')
+  useThemeStore.setState({ theme: chatThemes.dark })
+  try {
+    const longPath = path.join(temporary, 'long-project-directory-'.repeat(5))
+    mkdirSync(longPath)
+    for (const directory of [temporary, longPath]) {
+      for (let i = 0; i < 15; i++) mkdirSync(path.join(directory, `directory-${String(i).padStart(2, '0')}`))
+    }
+    for (const [width, height, count, directory] of [
+      [80, 29, 0, temporary],
+      [120, 32, 3, temporary],
+      [40, 24, 0, longPath],
+      [80, 12, 0, temporary],
+    ] as const) {
+      loadRecents.mockReturnValue(Array.from({ length: count }, (_, i) => ({ path: `C:/recent-${i + 1}`, lastOpened: i })))
+      const setup = await createTestRenderer({ width, height })
+      const root = createRoot(setup.renderer)
+      try {
+        flushSync(() => root.render(<ProjectPickerScreen initialPath={directory} onSelectProject={() => {}} />))
+        // Resize callbacks feed the actual wrapped footer height into the next frame.
+        for (let frame = 0; frame < 3; frame++) {
+          await setup.renderOnce()
+          await Bun.sleep(0)
+          flushSync(() => {})
+        }
+        const plain = setup.captureCharFrame()
+        expect(plain).toContain('Select project directory...')
+        expect(plain).toContain('Open')
+        if (height >= 24) {
+          expect(plain).toContain('directory-00')
+          expect(plain.split('\n').filter((line) => line.includes('└') && line.includes('┘')).length).toBeGreaterThanOrEqual(2)
+        }
+        for (let i = 1; i <= count; i++) expect(plain).toContain(`recent-${i}`)
+        await saveFrame(`picker-${width}x${height}-${count}`, setup.captureSpans(), plain, chatThemes.dark.agentContentBg)
+      } finally {
+        flushSync(() => root.unmount())
+        setup.renderer.destroy()
+      }
+    }
+  } finally {
+    loadRecents.mockRestore()
+    useThemeStore.setState({ theme: previous })
+    rmSync(temporary, { recursive: true, force: true })
   }
 })

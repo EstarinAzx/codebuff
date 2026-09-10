@@ -50,8 +50,8 @@ This is the intended identity change around an existing working flow, not a new 
 - Preserve `cbm`, the existing package and binary distribution, provider routing, credential locations, active selection, model discovery, OAuth behavior, and all backend bypass conditions. No storage migration, public API change, or provider configuration change belongs in this work.
 - The HTML options are static sample screens with native browser radio controls. They perform no coding tasks, profile changes, or authentication.
 - The user selected **C: Ghostline**: "Use C: Ghostline for CBM-01." [DESIGN.md](../DESIGN.md) records the selected visual ingredients and their terminal adaptation. A and B remain comparison alternatives, not implementation targets.
-- Identity cleanup is complete independently of the palette. The theme ticket is now unblocked. Implement Ghostline through existing terminal primitives with its compact wordmark, single reading column, quiet status, and violet focus; retain responsive behavior rather than literal browser sizing or effects.
-- Use existing theme and logo seams. Keep automatic/light themes, terminal capability detection, user overrides, and motion preferences. No decorative animation is necessary.
+- Identity and Ghostline styling are implemented. The user's follow-up restores the animated CBM-01 banner in violet, with smaller-art/text fallbacks, while keeping the single reading column, quiet status, and compact composer. Retain terminal-native responsive behavior.
+- Use existing theme and logo seams, including the requested banner shimmer. Keep automatic/light themes, terminal capability detection, user overrides, and the existing animation gate; no additional motion system is needed.
 - Keep local planning files as the current queue. GitHub is authenticated, but publishing the prepared issues and any release remains a separate external step. This is the reversible planning default for the requested draft.
 
 ## Testing Decisions

@@ -17,3 +17,9 @@ Visual selection, after the HTML options were presented:
 > Use C: Ghostline for CBM-01.
 
 This approves Ghostline for implementation and unblocks the visual ticket. The selected reference is option C in `cbm-01-options.html`; the working scope and compatibility guarantees remain in the spec.
+
+Follow-up after using the local build:
+
+> Bring back the animated CBM-01 banner with Ghostline’s violet colors.
+
+Restore the banner and existing animation within the Ghostline design. The previous compact static header is superseded; keep responsive small-terminal fallbacks and the rest of the chosen style.

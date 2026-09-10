@@ -14,11 +14,11 @@ Let a developer ask for a coding task, inspect the agent's work, and continue us
 
 ## Brand Personality
 
-The display identity is exactly **CBM-01** (zero, no spaces). The user selected **C: Ghostline** from the HTML concepts: quiet violet accents, compact identity, muted chrome, and a single reading column. See `docs/design/cbm-01-request.md` for the exact selection and `DESIGN.md` for the terminal adaptation.
+The display identity is exactly **CBM-01** (zero, no spaces). The user selected **C: Ghostline**, then explicitly restored the animated CBM-01 banner in its violet palette. Keep muted chrome, a single reading column, and compact logo fallbacks for small terminals. See `docs/design/cbm-01-request.md` and `DESIGN.md`.
 
 ## Anti-references
 
-The existing product name and oversized legacy banner should not define the fork's visible identity. Existing technical identifiers and attribution have a separate compatibility boundary, documented in the rebrand spec.
+The fork's own animated CBM-01 banner is part of its identity. Legacy product names remain only where the rebrand spec requires truthful compatibility or provenance references.
 
 ## Design Principles
 

@@ -1,6 +1,6 @@
 import os from 'os'
 
-import React, { useCallback, useMemo, useState } from 'react'
+import React, { useCallback, useMemo, useRef, useState } from 'react'
 
 import { Button } from './button'
 import { MultilineInput } from './multiline-input'
@@ -21,6 +21,7 @@ import { isPlainEnterKey } from '../utils/terminal-enter-detection'
 import { getLogoBlockColor, getLogoAccentColor } from '../utils/theme-system'
 
 import type { SelectableListItem } from './selectable-list'
+import type { BoxRenderable } from '@opentui/core'
 
 // Layout constants for responsive breakpoints
 const LAYOUT = {
@@ -39,7 +40,7 @@ const LAYOUT = {
   COMPACT_MODE_THRESHOLD: 12,
 
   // Decorative element heights
-  LOGO_HEIGHT: IS_FREEBUFF ? 8 : 1,
+  LOGO_HEIGHT: 8, // Existing Freebuff allocation; CBM-01 measures the selected art.
   HELP_TEXT_HEIGHT: 2,
 
   // Spacing constants (used in normal mode)
@@ -64,6 +65,12 @@ export const ProjectPickerScreen: React.FC<ProjectPickerScreenProps> = ({
 }) => {
   const theme = useTheme()
   const [sheenPosition, setSheenPosition] = useState(0)
+  const bottomBarRef = useRef<BoxRenderable | null>(null)
+  const [bottomBarHeight, setBottomBarHeight] = useState(4)
+  const syncBottomBarHeight = useCallback(() => {
+    const height = bottomBarRef.current?.height
+    if (height) setBottomBarHeight(Math.max(4, height))
+  }, [])
 
   // Directory browsing state and navigation
   const {
@@ -117,11 +124,14 @@ export const ProjectPickerScreen: React.FC<ProjectPickerScreenProps> = ({
   // Compact mode: remove padding/margins when space is tight
   const isCompactMode = terminalHeight < LAYOUT.COMPACT_MODE_THRESHOLD
   const mainPadding = isCompactMode ? 0 : LAYOUT.MAIN_CONTENT_PADDING
+  const mainGap = isCompactMode ? 0 : 1
+  const optionalGap = IS_FREEBUFF ? 0 : mainGap
 
-  // Calculate essential height first (these always show)
-  // Essential = input (1) + file picker border (2) + bottom bar (2) + minimal padding
-  const essentialHeight =
-    LAYOUT.INPUT_HEIGHT + 2 + LAYOUT.BOTTOM_BAR_HEIGHT + (isCompactMode ? 0 : 2)
+  // Reserve the real wrapped footer, both padding edges, and the input/list gap.
+  // Freebuff keeps its existing allocation.
+  const essentialHeight = IS_FREEBUFF
+    ? LAYOUT.INPUT_HEIGHT + 2 + LAYOUT.BOTTOM_BAR_HEIGHT + (isCompactMode ? 0 : 2)
+    : LAYOUT.INPUT_HEIGHT + 2 + bottomBarHeight + mainPadding * 2 + mainGap
 
   // Calculate remaining height for file picker and optional elements
   const remainingHeight = terminalHeight - essentialHeight
@@ -136,12 +146,9 @@ export const ProjectPickerScreen: React.FC<ProjectPickerScreenProps> = ({
   const spaceAfterFilePicker = remainingHeight - filePickerHeight
 
   // Determine which optional elements can fit (priority: recents first, then logo, then help text)
-  const logoHeightNeeded =
-    LAYOUT.LOGO_HEIGHT +
-    (isCompactMode ? 0 : LAYOUT.LOGO_MARGIN_TOP + LAYOUT.LOGO_MARGIN_BOTTOM)
   const helpTextHeightNeeded =
     LAYOUT.HELP_TEXT_HEIGHT +
-    (isCompactMode ? 0 : LAYOUT.HELP_TEXT_MARGIN_BOTTOM)
+    (isCompactMode ? 0 : LAYOUT.HELP_TEXT_MARGIN_BOTTOM) + optionalGap
 
   // Allocate space for optional elements based on available space
   let availableForOptional = spaceAfterFilePicker
@@ -151,7 +158,7 @@ export const ProjectPickerScreen: React.FC<ProjectPickerScreenProps> = ({
   if (recentProjects.length > 0 && availableForOptional >= 2) {
     // Calculate how many recents fit
     const baseRecentsHeight =
-      1 + (isCompactMode ? 0 : LAYOUT.RECENTS_MARGIN_TOP) // header + margin
+      1 + (isCompactMode ? 0 : LAYOUT.RECENTS_MARGIN_TOP) + optionalGap
     const remainingForRecents = availableForOptional - baseRecentsHeight
     recentsToShow = Math.min(
       recentProjects.length,
@@ -160,19 +167,40 @@ export const ProjectPickerScreen: React.FC<ProjectPickerScreenProps> = ({
     )
     if (recentsToShow > 0) {
       availableForOptional -=
-        recentsToShow + 1 + (isCompactMode ? 0 : LAYOUT.RECENTS_MARGIN_TOP)
+        recentsToShow + 1 + (isCompactMode ? 0 : LAYOUT.RECENTS_MARGIN_TOP) + optionalGap
     }
   }
 
-  // Try to fit logo (decorative but nice)
+  // Logo setup
+  const logoSpacing = (isCompactMode ? 0 : LAYOUT.LOGO_MARGIN_TOP + LAYOUT.LOGO_MARGIN_BOTTOM) + optionalGap
+  const blockColor = IS_FREEBUFF ? getLogoBlockColor(theme.name) : theme.foreground
+  const accentColor = IS_FREEBUFF ? getLogoAccentColor(theme.name) : theme.primary
+  const { applySheenToChar } = useSheenAnimation({
+    logoColor: theme.foreground,
+    accentColor,
+    blockColor,
+    terminalWidth,
+    sheenPosition,
+    setSheenPosition,
+  })
+
+  const { component: logoComponent, textBlock: logoTextBlock } = useLogo({
+    availableWidth: contentMaxWidth,
+    maxHeight: Math.max(1, IS_FREEBUFF ? terminalHeight - 12 : availableForOptional - logoSpacing),
+    applySheenToChar,
+    textColor: IS_FREEBUFF ? theme.foreground : theme.primary,
+  })
+
+  // Measure the selected fallback so a banner cannot displace the file picker.
+  const logoHeightNeeded = (IS_FREEBUFF ? LAYOUT.LOGO_HEIGHT : logoTextBlock.split('\n').length) + logoSpacing
   const canShowLogo = !isCompactMode && availableForOptional >= logoHeightNeeded
   if (canShowLogo) {
     availableForOptional -= logoHeightNeeded
   }
 
-  // Try to fit help text (least important)
+  // The optional copy needs at least 24 columns to stay within its two-row budget.
   const canShowHelpText =
-    !isCompactMode && availableForOptional >= helpTextHeightNeeded
+    !isCompactMode && (IS_FREEBUFF || contentMaxWidth >= 24) && availableForOptional >= helpTextHeightNeeded
 
   const canShowRecents = recentsToShow > 0
   const maxRecentsToShow = recentsToShow
@@ -183,26 +211,6 @@ export const ProjectPickerScreen: React.FC<ProjectPickerScreenProps> = ({
 
   // Center content only in non-compact mode when there's extra space
   const shouldCenterContent = !isCompactMode && spaceAfterFilePicker > 10
-
-  // Logo setup
-  const blockColor = getLogoBlockColor(theme.name)
-  const accentColor = getLogoAccentColor(theme.name)
-  const { applySheenToChar } = useSheenAnimation({
-    enabled: IS_FREEBUFF,
-    logoColor: theme.foreground,
-    accentColor,
-    blockColor,
-    terminalWidth,
-    sheenPosition,
-    setSheenPosition,
-  })
-
-  const { component: logoComponent } = useLogo({
-    availableWidth: contentMaxWidth,
-    maxHeight: Math.max(1, terminalHeight - 12),
-    applySheenToChar,
-    textColor: IS_FREEBUFF ? theme.foreground : theme.primary,
-  })
 
   // Handle directory selection from SelectableList
   const handleDirectorySelect = useCallback(
@@ -314,7 +322,7 @@ export const ProjectPickerScreen: React.FC<ProjectPickerScreenProps> = ({
           justifyContent: shouldCenterContent ? 'center' : 'flex-start',
           width: '100%',
           padding: mainPadding,
-          gap: isCompactMode ? 0 : 1,
+          gap: mainGap,
           flexGrow: 1,
           flexShrink: 1,
         }}
@@ -438,6 +446,8 @@ export const ProjectPickerScreen: React.FC<ProjectPickerScreenProps> = ({
 
       {/* Bottom bar - fixed at bottom with Open button */}
       <box
+        ref={bottomBarRef}
+        onSizeChange={IS_FREEBUFF ? undefined : syncBottomBarHeight}
         style={{
           flexDirection: 'row',
           alignItems: 'center',
@@ -469,6 +479,7 @@ export const ProjectPickerScreen: React.FC<ProjectPickerScreenProps> = ({
           <Button
             onClick={selectCurrentDirectory}
             style={{
+              ...(IS_FREEBUFF ? {} : { flexShrink: 0 }),
               paddingLeft: 2,
               paddingRight: 2,
               paddingTop: 0,

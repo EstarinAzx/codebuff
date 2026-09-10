@@ -20,10 +20,10 @@ export const ChatHeader = memo(function ChatHeader({
   const { contentMaxWidth, terminalWidth, terminalHeight } = useTerminalDimensions()
   const theme = useTheme()
   const [sheenPosition, setSheenPosition] = useState(0)
-  const blockColor = getLogoBlockColor(theme.name)
-  const accentColor = getLogoAccentColor(theme.name)
+  const blockColor = IS_FREEBUFF ? getLogoBlockColor(theme.name) : theme.foreground
+  const accentColor = IS_FREEBUFF ? getLogoAccentColor(theme.name) : theme.primary
   const { applySheenToChar } = useSheenAnimation({
-    enabled: IS_FREEBUFF && animationEnabled,
+    enabled: animationEnabled,
     logoColor: theme.foreground,
     accentColor,
     blockColor,

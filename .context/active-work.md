@@ -8,14 +8,16 @@ tags: [context, active-work, branding]
 # Active Work
 
 _Last updated: 2026-09-10 by GPT-6 Astra (auto)_
-_Integrated locally on modded at merge 5cc13014d; runtime verified at d9e6b1d0c._
+_Original merge: 5cc13014d. Animated-banner restoration is verified locally on modded._
 
 ## Current focus
 
-The requested **CBM-01** rebrand and **C: Ghostline** terminal redesign are complete locally. All three tickets are delivered. [Spec](../docs/prd.md), [design](../DESIGN.md), and [workflow](../docs/design/cbm-01-workflow.md) preserve scope and merge decisions.
+The original rebrand and the user's animated **CBM-01** banner follow-up are complete locally. Ghostline violet and the existing sheen are restored, with responsive banner/text fallbacks and corrected project-picker sizing. [Design](../DESIGN.md) and the merge map record the correction. The old three-leg relay stays closed.
 
 ## State
 
+- **Done:** animated banner and picker correction. Final focused checks: 19 pass; Freebuff 8 pass / 6 expected skips; CLI typecheck and Windows build pass. Animation/paused-state and actual-picker regressions failed before their fixes. Independent review approved after verifying 32 picker configurations. Review: `artifacts/cbm-01-banner-review` in this epic. Captures: `debug/cbm-01/animated-banner/`.
+- **Current local executable:** `cli/bin/codebuff-mod.exe`, SHA-256 `235e73948791aa1c398c63ec13c8866b1479209a2bda4994e9f5b1c3035341d7`. It still reports 1.4.1; no release/version/global installation change. This supersedes the earlier local binary hash in ticket 03. Final build log: Traycer shell `ef032729-aa27-4230-bf80-a33cd28218b5`.
 - **Done:** identity, generated-footer cleanup, compact Ghostline layout, dark/light colors, contrast corrections, and compatibility checks. The feature was merged into `modded` with `--no-ff`; `main` remains at `88c4df13a` and its tree still matches local `upstream/main`.
 - **Verified by controller:** 65 integrated identity/theme/export/streaming/provider tests, seven Freebuff branding tests, CLI typecheck, binary help/version, expected executable/WASM hashes, and unchanged runtime sources against the reviewed candidate. Exact commands, hashes and limits are in [ticket 03](../docs/issues/03-cbm-01-integration.md).
 - **Review:** identity, Ghostline and final combined reviews have no open actionable findings. Native component frames cover wide/narrow/short, dark/light, focused controls and cleared input. Live interactive terminal acceptance remains unverified because tmux is unavailable; physical limited-color hardware was not tested.
@@ -24,7 +26,7 @@ The requested **CBM-01** rebrand and **C: Ghostline** terminal redesign are comp
 
 ## Pick up here
 
-No required work remains for this request. For a new request, read [[pick-up]] and inspect live git. The next optional actions are local installation or publication, only if the user requests them. Preserve existing provider selection and credential stores.
+No required implementation remains. Run the rebuilt local executable to inspect the animated banner. Preserve the user's provider state and any current sessions. Do not restart the completed relay or publish a release without a new request.
 
 ## Recent context
 

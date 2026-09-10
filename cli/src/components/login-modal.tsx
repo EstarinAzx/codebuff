@@ -224,10 +224,9 @@ export const LoginModal = ({
   const loginUrlWrapped = loginUrlLines.length > 1
 
   // Use custom hook for sheen animation
-  const blockColor = getLogoBlockColor(theme.name)
-  const accentColor = getLogoAccentColor(theme.name)
+  const blockColor = IS_FREEBUFF ? getLogoBlockColor(theme.name) : theme.foreground
+  const accentColor = IS_FREEBUFF ? getLogoAccentColor(theme.name) : theme.primary
   const { applySheenToChar } = useSheenAnimation({
-    enabled: IS_FREEBUFF,
     logoColor: theme.foreground,
     accentColor,
     blockColor,

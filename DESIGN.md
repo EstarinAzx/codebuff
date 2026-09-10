@@ -10,14 +10,14 @@ The developer is focused on a coding task in a terminal. The selected dark refer
 
 | Ingredient from option C | Terminal implementation |
 | --- | --- |
-| Compact CBM-01 wordmark | Use the existing text-logo path or a small text header instead of a tall startup banner; preserve usable project/login states |
+| Animated CBM-01 banner | Restore the existing shimmer in Ghostline violet when the art fits; use smaller art or a one-line wordmark when width/height is limited; preserve usable project/login states |
 | One reading column | Keep output and input aligned; use the existing content-width/layout behavior; no new side rail |
 | Thin contextual status row | Keep real project/provider/model/mode information in existing compact status/header affordances; wrap or shorten secondary text on narrow terminals |
 | Quiet violet identity | Use violet for primary focus/selection/identity, neutral inactive surfaces, and labeled semantic warning/error/success colors |
 | Restrained borders | Reduce decorative contrast in conversation/input chrome without hiding focus, selection, or actionable boundaries |
 | Calm rhythm | Reduce wasted startup rows and let output lead; preserve existing motion preference and keyboard behavior |
 
-The browser's display-font sizing and pixel padding translate into terminal cells and emphasis, not new fonts or a browser shell. Its profiles and status labels are sample content, not permission to add a new provider or fake live indicators. No images, gradients, blur, or decorative animation are required.
+The user explicitly requested the animated banner after inspecting the first build: "Bring back the animated CBM-01 banner with Ghostline’s violet colors." This supersedes the earlier static-header interpretation. Reuse the existing animation and visibility/focus gating. The compact composer, other Ghostline styling, and terminal font settings stay as implemented. The HTML's sample profiles/status labels do not authorize new providers or fake live indicators.
 
 ## Color anchor
 
