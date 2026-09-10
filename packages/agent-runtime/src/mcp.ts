@@ -55,8 +55,11 @@ export async function getMCPToolData(
           })
 
           for (const { name, description, inputSchema } of mcpData) {
+            // Check conversion before advertising, but preserve the original
+            // JSON: custom validators cannot always serialize back to JSON.
+            convertJsonSchemaToZod(inputSchema as Record<string, unknown>)
             writeTo[mcpName + MCP_TOOL_SEPARATOR + name] = {
-              inputSchema: convertJsonSchemaToZod(inputSchema as any) as any,
+              inputSchema: inputSchema as Record<string, unknown>,
               endsAgentStep: true,
               description,
             }

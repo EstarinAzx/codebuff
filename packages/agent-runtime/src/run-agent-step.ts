@@ -22,7 +22,7 @@ import {
   userMessage,
 } from '@codebuff/common/util/messages'
 import { type ToolSet } from 'ai'
-import { cloneDeep, mapValues } from 'lodash'
+import { mapValues } from 'lodash'
 import z from 'zod/v4'
 
 import { maybeCompactHistory } from './compact-history'
@@ -99,7 +99,7 @@ import type {
 } from '@codebuff/common/util/file'
 
 // Convert a tool's stored inputSchema into JSON Schema suitable for Anthropic's
-// count_tokens API. Built-in and MCP tools store a Zod schema here; serializing
+// count_tokens API. Built-in and custom tools may store Zod here; serializing
 // it raw ships Zod internals (`def`/`shape`) instead of JSON Schema, so token
 // counts are computed against garbage and any schema whose top-level isn't an
 // object (e.g. a union → `anyOf`) arrives without `type`, which the API rejects
@@ -122,8 +122,16 @@ export function toTokenCountInputSchema(
       jsonSchema = { type: 'object', properties: {} }
     }
   } else if (typeof inputSchema === 'object' && !Array.isArray(inputSchema)) {
-    // Already a plain object (e.g. a pre-serialized JSON Schema) — copy it.
-    jsonSchema = { ...(inputSchema as Record<string, unknown>) }
+    // AI SDK wrappers retain MCP's original JSON Schema alongside validation.
+    const wrapped = inputSchema as {
+      jsonSchema?: Record<string, unknown>
+      validate?: unknown
+    }
+    jsonSchema = {
+      ...(typeof wrapped.validate === 'function' && wrapped.jsonSchema
+        ? wrapped.jsonSchema
+        : (inputSchema as Record<string, unknown>)),
+    }
   } else {
     return undefined
   }
@@ -151,11 +159,9 @@ async function additionalToolDefinitions(
 ): Promise<CustomToolDefinitions> {
   const { agentTemplate, fileContext } = params
 
-  const defs = cloneDeep(
-    Object.fromEntries(
-      Object.entries(fileContext.customToolDefinitions).filter(([toolName]) =>
-        agentTemplate!.toolNames.includes(toolName),
-      ),
+  const defs = Object.fromEntries(
+    Object.entries(fileContext.customToolDefinitions).filter(([toolName]) =>
+      agentTemplate!.toolNames.includes(toolName),
     ),
   )
   return getMCPToolData({
@@ -358,8 +364,7 @@ export const runAgentStep = async (
   const systemTokens = countTokens(system)
 
   let cacheDebugCorrelation:
-    | ReturnType<typeof createCacheDebugSnapshot>
-    | undefined
+    ReturnType<typeof createCacheDebugSnapshot> | undefined
   if (CACHE_DEBUG_FULL_LOGGING) {
     try {
       cacheDebugCorrelation = createCacheDebugSnapshot({
@@ -570,10 +575,7 @@ export const runAgentStep = async (
   // injection did not) replaced the whole history with an ordinary answer.
   const wasCompacted = isCompactCommandPrompt(prompt)
   if (wasCompacted) {
-    if (
-      fullResponse.trim().length > 0 &&
-      !isThinkOnlyResponse(fullResponse)
-    ) {
+    if (fullResponse.trim().length > 0 && !isThinkOnlyResponse(fullResponse)) {
       agentState.messageHistory = [
         userMessage(
           withSystemTags(

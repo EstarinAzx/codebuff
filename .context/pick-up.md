@@ -5,13 +5,13 @@ updated: 2026-09-11
 
 # Pick up
 
-Read [[active-work]]. **The tested search/browser/Windows preview is integrated into `modded` and installed locally.** `rdx`, `cbm` and `codebuff-mod` all report `1.5.2-dev.tools`. No active work remains.
+Read [[active-work]]. **The MCP first-request schema crash is fixed and installed locally.** `rdx`, `cbm` and `codebuff-mod` report `1.5.2-dev.tools.1`. No active work remains. Restart any old CLI session before retrying; computer control remains enabled and browser control remains disabled, matching the user's saved settings.
 
-The user authorized local installation while preserving profiles. Both profiles remain, Grok stays selected, and provider/credential/connector fingerprints are unchanged. Existing RD-X-96 sessions were preserved; start a new `rdx` session for the upgrade. `/browser on` and `/computer on` enable local control without another API key.
+Root cause: deep copying Zod erased private schema state. The fixed pipeline preserves Zod instances and original JSON Schema, while retaining existing validation. It also removes internal step flags before external validation. No dependency, model, provider or credential change was required.
 
-The integration passed 190 regression tests, four typechecks and independent review. A focused launcher regression also passes: the preview is retained over 1.5.1 and later stable updates still work. Installed executable/WASM hashes and aliases were verified outside the repository.
+239 regression tests, runtime/SDK/CLI typechecks, independent review, real 43-schema preparation and an actual Grok desktop-tool round trip passed. A second live check ran through the rebuilt public SDK and complete agent loop. Installed binary/WASM hashes and all aliases were verified; all six provider/credential/connector-setting fingerprints remain unchanged.
 
-This was a local install, with no push or publication. Keep the public 1.5.1 release/tag fixed and preserve `main` as the upstream mirror and user-owned `.codeboarding/`. The epic's `artifacts/rdx-web-computer-install/index.md` owns installation/rollback evidence. If asked to publish, use a new stable version and [MERGE-STRATEGY.md](../MERGE-STRATEGY.md).
+The epic's `artifacts/rdx-mcp-schema-fix/index.md` owns evidence and rollback details. The prior preview-install and release artifacts remain historical evidence. No push or publication occurred. Preserve the old 1.5.1 release tag, upstream `main` and user-owned `.codeboarding/`. Follow [MERGE-STRATEGY.md](../MERGE-STRATEGY.md) if asked to publish.
 
 ## Related
 

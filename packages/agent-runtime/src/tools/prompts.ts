@@ -8,7 +8,7 @@ import { getToolCallString } from '@codebuff/common/tools/utils'
 import { buildArray } from '@codebuff/common/util/array'
 import { formatAvailableSkillsXml } from '@codebuff/common/util/skills'
 import { pluralize } from '@codebuff/common/util/string'
-import { cloneDeep } from 'lodash'
+import { jsonSchema } from 'ai'
 import z from 'zod/v4'
 import { convertJsonSchemaToZod } from 'zod-from-json-schema'
 
@@ -20,6 +20,12 @@ import type {
 } from '@codebuff/common/util/file'
 import type { ToolSet } from 'ai'
 
+type ToolInputSchema = z.ZodType | Record<string, unknown>
+
+function isZodSchema(schema: ToolInputSchema): schema is z.ZodType {
+  return schema && typeof schema.safeParse === 'function'
+}
+
 /**
  * Ensures the inputSchema is a Zod schema. If it's a JSON Schema object
  * (from SDK custom tools that were serialized), converts it to Zod.
@@ -28,14 +34,9 @@ export function ensureZodSchema(
   schema: z.ZodType | Record<string, unknown>,
 ): z.ZodType {
   // Check if it's already a Zod schema by looking for the safeParse method
-  if (
-    schema &&
-    typeof (schema as { safeParse?: unknown }).safeParse === 'function'
-  ) {
-    return schema as z.ZodType
-  }
+  if (isZodSchema(schema)) return schema
   // JSON Schema object - convert to Zod
-  return convertJsonSchemaToZod(schema as Record<string, unknown>)
+  return convertJsonSchemaToZod(schema)
 }
 
 function ensureJsonSchemaCompatible(schema: z.ZodType): z.ZodType {
@@ -58,7 +59,11 @@ function toJsonSchemaSafe(schema: z.ZodType): Record<string, unknown> {
 
 function hasMeaningfulJsonSchema(jsonSchema: Record<string, unknown>): boolean {
   const properties = jsonSchema.properties
-  if (properties && typeof properties === 'object' && Object.keys(properties).length > 0) {
+  if (
+    properties &&
+    typeof properties === 'object' &&
+    Object.keys(properties).length > 0
+  ) {
     return true
   }
 
@@ -77,19 +82,28 @@ function hasMeaningfulJsonSchema(jsonSchema: Record<string, unknown>): boolean {
   return false
 }
 
-function paramsSection(params: { schema: z.ZodType; endsAgentStep: boolean }) {
+function paramsSection(params: {
+  schema: ToolInputSchema
+  endsAgentStep: boolean
+}) {
   const { schema, endsAgentStep } = params
-  const safeSchema = ensureJsonSchemaCompatible(schema)
-  const schemaWithEndsAgentStepParam = endsAgentStep
-    ? safeSchema.and(
-      z.object({
-        [endsAgentStepParam]: z
-          .literal(endsAgentStep)
-          .describe('Easp flag must be set to true'),
-      }),
+  let jsonSchema: Record<string, unknown>
+  if (isZodSchema(schema)) {
+    const safeSchema = ensureJsonSchemaCompatible(schema)
+    jsonSchema = toJsonSchemaSafe(
+      endsAgentStep
+        ? safeSchema.and(
+            z.object({
+              [endsAgentStepParam]: z
+                .literal(true)
+                .describe('Easp flag must be set to true'),
+            }),
+          )
+        : safeSchema,
     )
-    : safeSchema
-  const jsonSchema = toJsonSchemaSafe(schemaWithEndsAgentStepParam)
+  } else {
+    jsonSchema = { ...schema }
+  }
   delete jsonSchema.description
   delete jsonSchema['$schema']
   const paramsDescription = hasMeaningfulJsonSchema(jsonSchema)
@@ -102,13 +116,15 @@ function paramsSection(params: { schema: z.ZodType; endsAgentStep: boolean }) {
   } else if (paramsDescription.length > 0) {
     paramsSection = `Params: ${paramsDescription}`
   }
-  return paramsSection
+  return !isZodSchema(schema) && endsAgentStep
+    ? `${paramsSection}\nInternal step flag: include ${endsAgentStepParam}: true alongside these parameters. The runtime removes this marker before validating tool arguments.`
+    : paramsSection
 }
 
 // Helper function to build the full tool description markdown
 export function buildToolDescription(params: {
   toolName: string
-  schema: z.ZodType
+  schema: ToolInputSchema
   description?: string
   endsAgentStep: boolean
   exampleInputs?: any[]
@@ -131,7 +147,7 @@ export function buildToolDescription(params: {
   ).join('\n\n')
   return buildArray([
     `### ${toolName}`,
-    schema.description || '',
+    typeof schema.description === 'string' ? schema.description : '',
     paramsSection({ schema, endsAgentStep }),
     descriptionWithExamples,
   ]).join('\n\n')
@@ -151,7 +167,7 @@ export const toolDescriptions = Object.fromEntries(
 
 function buildShortToolDescription(params: {
   toolName: string
-  schema: z.ZodType
+  schema: ToolInputSchema
   endsAgentStep: boolean
 }): string {
   const { toolName, schema, endsAgentStep } = params
@@ -182,13 +198,13 @@ You (Buffy) have access to the following tools. Call them when needed.
 Tool calls use a specific XML and JSON-like format. Adhere *precisely* to this nested element structure:
 
 ${getToolCallString(
-    'tool_name',
-    {
-      parameter1: 'value1',
-      parameter2: 123,
-    },
-    false,
-  )}
+  'tool_name',
+  {
+    parameter1: 'value1',
+    parameter2: 123,
+  },
+  false,
+)}
 
 ### Commentary
 
@@ -202,20 +218,20 @@ User: can you update the console logs in example/file.ts?
 Assistant: Sure thing! Let's update that file!
 
 ${getToolCallString(
-    'example_editing_tool',
-    {
-      example_file_path: 'path/to/example/file.ts',
-      example_array: [
-        {
-          old_content_with_newlines:
-            "// some context\nconsole.log('Hello world!');\n",
-          new_content_with_newlines:
-            "// some context\nconsole.log('Hello from Buffy!');\n",
-        },
-      ],
-    },
-    false,
-  )}
+  'example_editing_tool',
+  {
+    example_file_path: 'path/to/example/file.ts',
+    example_array: [
+      {
+        old_content_with_newlines:
+          "// some context\nconsole.log('Hello world!');\n",
+        new_content_with_newlines:
+          "// some context\nconsole.log('Hello from Buffy!');\n",
+      },
+    ],
+  },
+  false,
+)}
 
 All done with the update!
 User: thanks it worked! :)
@@ -281,12 +297,13 @@ export const fullToolList = (
       const toolDef = additionalToolDefinitions[toolName]
       return buildToolDescription({
         toolName,
-        schema: ensureZodSchema(toolDef.inputSchema),
+        schema: toolDef.inputSchema,
         description: toolDef.description,
         endsAgentStep: toolDef.endsAgentStep ?? true,
         exampleInputs: toolDef.exampleInputs,
       })
-    }),]
+    }),
+  ]
 
   return `## List of Tools
 
@@ -323,7 +340,7 @@ export const getShortToolInstructions = (
       const { inputSchema, endsAgentStep } = additionalToolDefinitions[name]
       return buildShortToolDescription({
         toolName: name,
-        schema: ensureZodSchema(inputSchema),
+        schema: inputSchema,
         endsAgentStep: endsAgentStep ?? true,
       })
     }),
@@ -335,13 +352,13 @@ Use the tools below to complete the user request, if applicable.
 Tool calls use a specific XML and JSON-like format. Adhere *precisely* to this nested element structure:
 
 ${getToolCallString(
-    'tool_name',
-    {
-      parameter1: 'value1',
-      parameter2: 123,
-    },
-    false,
-  )}
+  'tool_name',
+  {
+    parameter1: 'value1',
+    parameter2: 123,
+  },
+  false,
+)}
 
 Important: You only have access to the tools below. Do not use any other tools -- they are not available to you, instead they may have been previously used by other agents.
 
@@ -430,13 +447,24 @@ export async function getToolSet(params: {
 
   const toolDefinitions = await additionalToolDefinitions()
   for (const [toolName, toolDefinition] of Object.entries(toolDefinitions)) {
-    const clonedDef = cloneDeep(toolDefinition)
-    // Custom tool inputSchema may be JSON Schema (from SDK) or Zod (from MCP)
-    // Ensure it's a Zod schema for the AI SDK
-    const zodSchema = ensureZodSchema(clonedDef.inputSchema)
-    const safeSchema = ensureJsonSchemaCompatible(zodSchema)
+    // Zod schemas carry non-enumerable state; preserve their immutable instances.
+    // Validate with Zod, but keep external JSON intact for model serialization.
+    const zodSchema = ensureZodSchema(toolDefinition.inputSchema)
+    const safeSchema = isZodSchema(toolDefinition.inputSchema)
+      ? ensureJsonSchemaCompatible(zodSchema)
+      : jsonSchema(
+          toolDefinition.inputSchema as Parameters<typeof jsonSchema>[0],
+          {
+            validate: (value) => {
+              const result = zodSchema.safeParse(value)
+              return result.success
+                ? { success: true, value: result.data }
+                : { success: false, error: result.error }
+            },
+          },
+        )
     toolSet[toolName] = {
-      ...clonedDef,
+      ...toolDefinition,
       inputSchema: safeSchema,
     } as (typeof toolSet)[string]
   }

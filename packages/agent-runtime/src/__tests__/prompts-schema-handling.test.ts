@@ -202,7 +202,7 @@ describe('Schema handling error recovery', () => {
       expect(description).toContain('content')
     })
 
-    test('buildToolDescription preserves MCP params when schema is represented as allOf', () => {
+    test('buildToolDescription preserves MCP params and the end-step flag', () => {
       const mcpSchema = convertJsonSchemaToZod({
         type: 'object',
         properties: {
@@ -221,7 +221,7 @@ describe('Schema handling error recovery', () => {
 
       expect(description).toContain('greet__greet')
       expect(description).toContain('Params: {')
-      expect(description).toContain('allOf')
+      expect(description).toContain('cb_easp')
       expect(description).toContain('name')
       expect(description).not.toContain('Params: None')
     })

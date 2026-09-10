@@ -1,7 +1,6 @@
 import { endsAgentStepParam, toolNames } from '@codebuff/common/tools/constants'
 import { toolParams } from '@codebuff/common/tools/list'
 import { generateCompactId } from '@codebuff/common/util/string'
-import { cloneDeep } from 'lodash'
 
 import { getMCPToolData } from '../mcp'
 import { MCP_TOOL_SEPARATOR } from '../mcp-constants'
@@ -619,6 +618,8 @@ export function parseRawCustomToolCall(params: {
   const rawSchema = customToolDefs?.[toolName]?.inputSchema
   if (rawSchema) {
     const paramsSchema = ensureZodSchema(rawSchema)
+    // This flag belongs to the runtime, never to the external tool's schema.
+    delete processedParameters[endsAgentStepParam]
     const result = paramsSchema.safeParse(processedParameters)
 
     if (!result.success) {
@@ -675,7 +676,7 @@ export async function executeCustomToolCall(
       ...params,
       toolNames: agentTemplate.toolNames,
       mcpServers: agentTemplate.mcpServers,
-      writeTo: cloneDeep(fileContext.customToolDefinitions),
+      writeTo: { ...fileContext.customToolDefinitions },
     }),
     rawToolCall: {
       toolName,
