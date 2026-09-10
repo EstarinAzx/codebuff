@@ -66,3 +66,11 @@ Local raw logs are in `debug/cbm-01/` (ignored build evidence). The focused bran
 Read-only reviewer `19cce268-e61a-4947-8586-4886e944e296` (Codex, GPT-6 Astra, high, full_access) approved after the generated-attribution P2 finding was fixed. No outstanding code findings. The reviewer independently ran branding 7/0 in both product modes, common attribution 5/0, runtime attribution 2/0 (15 filtered), and a clean diff check. The review did not independently repeat builds or typechecks.
 
 Review artifact: `C:/Users/S.D/.traycer/epics/534ebcad-526b-42d9-a142-dfd98ca72ffd/artifacts/cbm-01-identity-review/index.md`.
+
+### Controller-requested copy follow-up
+
+Commit `7421275253c1724873b5b768f7f3dc9d428fefb3` updates only the root/release introductions and package description to standalone CBM-01 wording with API-key or subscription providers, removes the unnecessary service reference from the release guide's active-profile explanation, and simplifies the postinstall welcome to `CBM-01 installed.`. Its existing branding assertion was adjusted. Provenance/license sections, service troubleshooting, installation names, binary cleanup names, repository URLs, and original notices remain unchanged.
+
+Follow-up verification on 2026-09-10: from `cli/`, `bun test ./src/__tests__/branding.test.tsx` passed 7/0 with 73 assertions, and the same command with process-local `FREEBUFF_MODE=true` passed 7/0 with 73 assertions. `git diff --check` passed. No new tests, repeated build, or repeated typecheck were needed for these prose and script-output changes, as directed by the coordinator. Earlier implementation verification counts above remain the evidence for commit `31e783faef60866d8a4926cd6201278b4bd4ca2c`.
+
+This remains relay leg 1, one completed identity unit, outcome `continue`; ticket 02 still awaits the user's visual direction.
