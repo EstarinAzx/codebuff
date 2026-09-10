@@ -7,7 +7,7 @@ tags: [moc, codebuff, llm-proxy, byok]
 
 # CBM-01 (fork) — Map
 
-**Current initiative:** Rebrand the fork as **CBM-01** (zero, no spaces). The user selected **C: Ghostline**. [Spec](../docs/prd.md), [selected design](../DESIGN.md), [HTML comparison](../docs/design/cbm-01-options.html), and [workflow](../docs/design/cbm-01-workflow.md). Existing distribution identifiers below remain compatibility facts.
+**Completed locally:** The fork is **CBM-01** (zero, no spaces) with user-selected **C: Ghostline**, integrated on `modded` at `5cc13014d`. Run the local `cli/bin/codebuff-mod.exe`; the published package/global command have not been updated. [Spec](../docs/prd.md), [selected design](../DESIGN.md), [HTML comparison](../docs/design/cbm-01-options.html), and [workflow](../docs/design/cbm-01-workflow.md). Existing distribution identifiers below remain compatibility facts.
 
 Upstream Codebuff is a composable coding-agent monorepo where a hosted backend proxies LLM requests to upstream providers and bills users in credits via BigQuery + Stripe. CLI is a TUI built on OpenTUI + React. Also ships `freebuff`, the free tier.
 

@@ -28,6 +28,8 @@ The [spec](../docs/prd.md) owns scope; [workflow](../docs/design/cbm-01-workflow
 
 ## Needs you
 
+The local rebrand is complete. Unchecked entries below are optional future choices, not blockers or unfinished implementation work.
+
 - [x] Final visual direction: C: Ghostline.
       warrant: "Use C: Ghostline for CBM-01." @ docs/design/cbm-01-request.md
       resolved: direct user choice; resume the existing stopped relay at leg 2
@@ -68,3 +70,4 @@ The [spec](../docs/prd.md) owns scope; [workflow](../docs/design/cbm-01-workflow
 - Leg 2 dispatched to `d87b0a31-ca74-4056-9c7e-e43706fc3edb`, request `43285d93-ef7f-4c9b-adba-0471419ef54c`, base `ac6c5110a`. Ticket 02 applies the approved Ghostline direction; ticket 03 remains integration. `.claude/relay/cbm-01.traycer.json` owns live state.
 - Leg 2 accepted at `b8e37262f`. Controller reran 104 UI/theme tests, 83 provider/identity checks, 118 affected Freebuff checks (4 expected skips), CLI typecheck, and binary help/version. Sampled real rendered dark/light/wide/narrow/short frames. Independent review approved after inverse-label contrast fixes. Worker and reviewer archived. Ticket 03 is ready for a fresh cold integration gate and expressly scoped local merge; no release is authorized.
 - Leg 3 dispatched to `9be65d30-7901-4d73-9f3d-a146d671b9dd`, request `5941af55-b88d-40be-9221-528fffd3f3e5`, base `4e505bc11`. Scope: final cold combined review, verified local --no-ff merge into source modded, and integrated local build/checkpoint. Controller alone closes .context and control state. No remote publication or global installation is authorized.
+- Complete: all three units delivered. Local merge `5cc13014d` is verified; runtime checked at `d9e6b1d0c`. Controller reran 65 integrated tests, seven Freebuff checks, CLI typecheck, help/version, hashes and unchanged-main/runtime-tree checks. Final baton saved; queue empty. No successor, gauntlet, release, global installation or push is scheduled.

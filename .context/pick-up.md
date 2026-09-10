@@ -5,15 +5,15 @@ updated: 2026-09-10
 
 # Pick up
 
-Read [[overview]] and [[active-work]], then [the CBM-01 spec](../docs/prd.md) and [workflow](../docs/design/cbm-01-workflow.md).
+Read [[overview]] and [[active-work]]. **Queue empty.** The CBM-01 rebrand and user-selected **C: Ghostline** are complete locally on `modded`.
 
-**Exact name: CBM-01, zero, no spaces.** The user invoked pick-up then vibe init for a cyberpunk rebrand and requested quick HTML options plus a saved merge workflow. v1.4.1 release work was already complete.
+Merge: `5cc13014d5d9d54ae49da5451775c0d82329b1fa`. [Ticket 03](../docs/issues/03-cbm-01-integration.md) owns the verification, hashes, review and rollback evidence. All implementation/integration workers are retired; the relay is complete. Do not replay any ticket or restart the stopped run.
 
-**Done: ticket 01, visible identity cleanup.** [Checkpoint](../docs/issues/01-cbm-01-identity.md) matches `feature/cbm-01` at `732e25e98`. Controller verification and independent review passed. Code is not merged into `modded` or released. The feature worktree remains at `C:/Users/S.D/.traycer/worktrees/estarinazx__codebuff-modded/feature-cbm-01`.
+Run the redesigned local binary from this repo with `.\cli\bin\codebuff-mod.exe`. The global `cbm` and published v1.4.1 release are unchanged. No release, global installation, version bump, push, sign-in or inference was performed. Local installation/publication are optional new requests, not unfinished work.
 
-**Done: C: Ghostline in ticket 02**, through `b8e37262f`. [DESIGN.md](../DESIGN.md) and [ticket 02](../docs/issues/02-cbm-01-theme.md) contain the verified result and limits. **In flight: ticket 03 for the final local merge gate.** The leg-3 integrator may merge the feature into source modded after verification; controller owns final .context/relay closure. Read `.claude/relay/cbm-01.traycer.json` before acting; do not duplicate a worker or edit the source checkout during its integration. Do not replay tickets 01/02 or ask for the design choice again.
+The exact display name is **CBM-01**, zero and no spaces. [DESIGN.md](../DESIGN.md) owns Ghostline; [workflow](../docs/design/cbm-01-workflow.md) and [MERGE-STRATEGY.md](../MERGE-STRATEGY.md) protect future syncs. Preserve technical compatibility identifiers, original notices, saved provider state, and the upstream-tree mirror `main`. `.codeboarding/` is user-owned. The feature worktree and its native renderer captures remain available for inspection.
 
-Keep fork work and baton commits on `modded` or its feature branch, never on the upstream tree mirror `main`. Preserve technical package/env/protocol/storage names, original notices, saved profiles, credential isolation, and working updater URLs. `.codeboarding/` remains user-owned. No release, package migration, or public issue publication is part of this local run.
+Live interactive terminal acceptance and physical limited-color hardware remain unverified; focused tests, native component renders, typecheck, build and help/version smoke passed.
 
 ## Related
 

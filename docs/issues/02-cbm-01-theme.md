@@ -4,7 +4,7 @@
 
 **Blocked by:** 01 (complete). The user selected C: Ghostline; no remaining blocker.
 
-**Status:** complete on feature/cbm-01; integration pending
+**Status:** complete
 
 - [x] Record the user's choice: "Use C: Ghostline for CBM-01."
 - [x] Apply the direction through the existing theme/logo/layout seams, with a small reviewable diff.
@@ -14,6 +14,8 @@
 - [x] Run affected tests and typechecks; report what was and was not visually executed.
 
 ## Checkpoint
+
+Integrated into `modded` by [ticket 03](03-cbm-01-integration.md). The implementation evidence below records leg 2 at its completion; integration is now complete.
 
 Ghostline is approved. Follow [DESIGN.md](../../DESIGN.md), the [spec](../prd.md), and [workflow](../design/cbm-01-workflow.md). Preserve the selected ingredients: compact wordmark, single conversation column, quiet contextual status, violet focus/selection, and muted inactive chrome. Implement and verify the actual terminal, retaining light mode, terminal fallbacks, and user customization. This is relay leg 2; do not replay identity ticket 01 or perform integration ticket 03.
 

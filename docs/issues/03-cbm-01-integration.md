@@ -4,19 +4,19 @@
 
 **Blocked by:** 01 and 02 (both verified complete on feature/cbm-01).
 
-**Status:** integration scope complete; controller final handoff pending
+**Status:** complete
 
 - [x] Independently review the complete diff and resolve actionable findings.
 - [x] Run targeted identity/theme/provider regressions and affected package typechecks.
 - [x] Build and smoke the local binary, recording the exact commands and limitations.
 - [x] Update the merge conflict map with the actual final brand/theme seams and checks.
 - [x] Integrate the verified feature branch into modded as one revertible merge; main remains an upstream tree mirror.
-- [ ] Refresh the baton with the final state, remaining compatibility exceptions, and next action.
+- [x] Refresh the baton with the final state, remaining compatibility exceptions, and next action.
 - [x] Leave publication, distribution renaming, and any version decision for a separate explicit request.
 
 ## Checkpoint
 
-Relay `cbm-01`, leg 3, worker `9be65d30-7901-4d73-9f3d-a146d671b9dd`, one completed integration unit, outcome `done` for this worker's scope. The controller must independently verify this result, refresh `.context` and relay state, and close the unchecked final baton criterion. This checkpoint does not claim the controller has done that work.
+Relay `cbm-01`, leg 3, worker `9be65d30-7901-4d73-9f3d-a146d671b9dd`, one completed integration unit. Controller independently verified the merge/runtime tree, unchanged main, executable/WASM hashes, binary help/version, 65 integrated tests, seven Freebuff checks, and CLI typecheck. Final baton/control state is saved and the local work queue is empty. All three units are complete; publication and global installation remain separate requests.
 
 This ticket may perform local integration only when the controller's brief explicitly grants the source checkout. Inspect the complete code diff and existing review artifacts, verify the combined candidate, then merge `feature/cbm-01` into `modded` with `--no-ff`. Keep `main` unchanged. Preserve the user's untracked `.codeboarding/`; stop on unexpected changes rather than stashing or discarding them. Commit final ticket evidence on `modded`; the controller writes `.context/` and relay state. No push, publication, global installation, release version change, or live authentication.
 
