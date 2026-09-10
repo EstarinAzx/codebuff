@@ -400,7 +400,7 @@ Keep original notices and truthful package, import, environment, storage, protoc
 
 #### CBM-01 feature integration
 
-Use an isolated `feature/cbm-01` branch from `modded`, followed by a reviewed `--no-ff` merge into `modded` after verification. Planning and baton commits belong on `modded`; the generic ticket-loop default of writing context to `main` must not contaminate the upstream tree mirror. The visual direction remains unselected until recorded from the user. [Workflow and merge checklist](./docs/design/cbm-01-workflow.md).
+Use the isolated `feature/cbm-01` branch from `modded`, followed by a reviewed `--no-ff` merge into `modded` after verification. Planning and baton commits belong on `modded`; the generic ticket-loop default of writing context to `main` must not contaminate the upstream tree mirror. The user selected Ghostline; preserve the resulting compact layout and violet semantic theme from [DESIGN.md](./DESIGN.md) through future syncs. [Workflow and merge checklist](./docs/design/cbm-01-workflow.md).
 
 #### `common/src/constants/model-config.ts`
 

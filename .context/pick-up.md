@@ -11,7 +11,7 @@ Read [[overview]] and [[active-work]], then [the CBM-01 spec](../docs/prd.md) an
 
 **Done: ticket 01, visible identity cleanup.** [Checkpoint](../docs/issues/01-cbm-01-identity.md) matches `feature/cbm-01` at `732e25e98`. Controller verification and independent review passed. Code is not merged into `modded` or released. The feature worktree remains at `C:/Users/S.D/.traycer/worktrees/estarinazx__codebuff-modded/feature-cbm-01`.
 
-**Next: choose the visual direction for ticket 02.** [Compare A/B/C](../docs/design/cbm-01-options.html). No palette is user-approved. Relay is stopped with `needs_visual_direction`; worker/reviewer are archived. Read `.claude/relay/cbm-01.traycer.json`, record the user's selection, and explicitly resume with a fresh leg-2 worker. Do not replay ticket 01. Ticket 03 integrates the finished identity/theme after verification.
+**Next: implement C: Ghostline in ticket 02.** The user explicitly selected it. Read [DESIGN.md](../DESIGN.md), ticket 02, and `.claude/relay/cbm-01.traycer.json` for actual worker ownership. Resume with a fresh leg-2 worker after syncing committed planning updates into the existing feature worktree. Do not replay ticket 01 or ask for the design choice again. Ticket 03 integrates the finished identity/theme after verification.
 
 Keep fork work and baton commits on `modded` or its feature branch, never on the upstream tree mirror `main`. Preserve technical package/env/protocol/storage names, original notices, saved profiles, credential isolation, and working updater URLs. `.codeboarding/` remains user-owned. No release, package migration, or public issue publication is part of this local run.
 

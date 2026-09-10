@@ -21,12 +21,12 @@ Rebrand the standalone fork as **CBM-01** (zero, no spaces), compare cyberpunk d
 - **Done:** local spec, tickets, workflow, product context, and merge-map amendment saved. No public issues or release created.
 - **Done:** [ticket 01](../docs/issues/01-cbm-01-identity.md) identity cleanup implemented and independently reviewed on `feature/cbm-01`, HEAD `732e25e98`. Source ticket checkpoint matches that branch. The code remains in `C:/Users/S.D/.traycer/worktrees/estarinazx__codebuff-modded/feature-cbm-01`.
 - **Verified by controller:** 106 CLI tests, 22 Freebuff checks, 5 common and 2 runtime attribution checks, full CLI typecheck, and binary help/version. Final copy follow-up passed 7 branding checks in each product mode. Exact worker build evidence, two reproduced baseline schema failures, and tmux/live acceptance limits are in ticket 01.
-- **Stopped:** `.claude/relay/cbm-01.traycer.json` records one accepted unit and `needs_visual_direction`. Worker and reviewer archived. No active implementation agent remains.
-- **Waiting:** [ticket 02](../docs/issues/02-cbm-01-theme.md) needs the user's visual direction. Default A in the HTML is not approval. [Ticket 03](../docs/issues/03-cbm-01-integration.md) follows 01 and 02.
+- **Resuming:** the user selected **C: Ghostline**. [DESIGN.md](../DESIGN.md) and [ticket 02](../docs/issues/02-cbm-01-theme.md) record the approved direction. Prepare a fresh leg-2 worker; `.claude/relay/cbm-01.traycer.json` owns actual dispatch state. Leg 1's worker and reviewer are archived.
+- **Next:** implement Ghostline and verify it, then complete [ticket 03](../docs/issues/03-cbm-01-integration.md) for local integration. No further visual-choice approval is required.
 
 ## Pick up here
 
-Record the user's visual choice in the spec and ticket 02, then explicitly resume the stopped Traycer relay on the existing feature worktree with a fresh worker. Do not replay ticket 01. Check both branches before bringing source planning updates into the feature branch. Keep context and fork code off `main`; it must remain an exact upstream tree mirror. Integration follows ticket 03 after the theme passes.
+Resume the Traycer relay on the existing feature worktree with a fresh leg-2 worker for the approved Ghostline direction. Do not replay ticket 01. Bring the committed source planning updates into the feature branch before dispatch. Keep context and fork code off `main`; it must remain an exact upstream tree mirror. Integration follows ticket 03 after the theme passes.
 
 ## Skills for next session
 
@@ -36,7 +36,7 @@ Record the user's visual choice in the spec and ticket 02, then explicitly resum
 
 ## Open questions
 
-- Which direction: A Neon Circuit, B Amber Grid, C Ghostline, or a specified combination?
+- Visual choice resolved: the user said "Use C: Ghostline for CBM-01."
 - Package/repository migration and public release are deferred; preserve working compatibility identifiers.
 
 ## Recent context
