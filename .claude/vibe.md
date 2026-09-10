@@ -5,7 +5,7 @@ partner: gpt-6-astra
 pressure: gpt-6-astra
 pressure_via: traycer-codex-same-model-degraded
 max_defer: 12
-phase: tickets
+phase: fired
 halted: false
 ---
 
@@ -62,3 +62,4 @@ The [spec](../docs/prd.md) owns scope; [workflow](../docs/design/cbm-01-workflow
 - Pressure rejected a literal-zero-reference claim; one follow-up accepted the explicit compatibility exception. No agent selected the visual direction.
 - Local spec, three tickets, HTML sketches, and merge workflow saved. 18 browser layout combinations plus keyboard focus/selection passed. Screenshot capture stalled; no visual screenshot QA claimed.
 - Final independent Pressure check: queue and runbook STANDS. Identity-only completion is partial work; it does not complete the redesign or authorize feature integration while the visual ticket is blocked.
+- Fired connected Traycer relay N=1 using `.claude/cbm-01-ticket-loop.md`, the repository-local adaptation of preset ticket-loop. Worker `d4ba8833-943a-4764-8257-f3350f223d09`, request `e0764772-1069-44d4-9d31-9cc412a1598a`, leg 1, ticket 01. Control state: `.claude/relay/cbm-01.traycer.json`. Gauntlet is not chained.

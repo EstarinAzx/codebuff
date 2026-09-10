@@ -19,7 +19,7 @@ Rebrand the standalone fork as **CBM-01** (zero, no spaces), compare cyberpunk d
 - **Done:** baton rehydrated, exact name corrected, source/compatibility audit completed, and eight file warrants plus the correction verified mechanically. Independent same-model Pressure accepted identity-only work and the documented technical-identifier exception.
 - **Done:** [HTML comparison](../docs/design/cbm-01-options.html) offers Neon Circuit, Amber Grid, and Ghostline across three sample screens. All 18 direction/screen/width combinations passed live DOM/layout checks at 1440 and 390 pixels, without horizontal page overflow. Keyboard selection and visible focus outline passed; browser console had no errors. Screenshot capture stalled and was stopped, so screenshot QA is not claimed.
 - **Done:** local spec, tickets, workflow, product context, and merge-map amendment saved. No public issues or release created.
-- **Next:** isolated identity-only implementation of [ticket 01](../docs/issues/01-cbm-01-identity.md) under Traycer relay. Inspect `.claude/relay/cbm-01.traycer.json` if present before starting anything; it owns worker state.
+- **In flight:** ticket 01 identity-only implementation dispatched to the isolated `feature/cbm-01` worktree. Inspect `.claude/relay/cbm-01.traycer.json` before starting anything; it owns current worker/request state and the worktree checkpoint path. Source planning commit: `1a0c1cedc`.
 - **Waiting:** [ticket 02](../docs/issues/02-cbm-01-theme.md) needs the user's visual direction. Default A in the HTML is not approval. [Ticket 03](../docs/issues/03-cbm-01-integration.md) follows 01 and 02.
 
 ## Pick up here

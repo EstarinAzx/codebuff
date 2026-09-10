@@ -9,7 +9,7 @@ Read [[overview]] and [[active-work]], then [the CBM-01 spec](../docs/prd.md) an
 
 **Exact name: CBM-01, zero, no spaces.** The user invoked pick-up then vibe init for a cyberpunk rebrand and requested quick HTML options plus a saved merge workflow. v1.4.1 release work was already complete.
 
-**Next: ticket 01, visible identity cleanup.** Read [its checkpoint](../docs/issues/01-cbm-01-identity.md) and `.claude/relay/cbm-01.traycer.json` if present before resuming. The relay controller is `befadc45-117d-4502-95c0-8f4f9efb1313`; do not start a duplicate while its worker is active.
+**In flight: ticket 01, visible identity cleanup.** Read `.claude/relay/cbm-01.traycer.json` before resuming; its `external_state` points to the active worktree's ticket checkpoint. The source [ticket](../docs/issues/01-cbm-01-identity.md) is the planning copy until integration. The relay controller is `befadc45-117d-4502-95c0-8f4f9efb1313`; do not start a duplicate while its worker is active.
 
 **Visual choice remains open.** [Compare A/B/C](../docs/design/cbm-01-options.html). No palette is user-approved. Ticket 02 waits for the direction; identity work can proceed independently.
 
