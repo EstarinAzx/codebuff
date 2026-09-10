@@ -23,7 +23,7 @@ for (const name of staleBinaries) {
 
 // Print welcome message
 console.log('\n');
-console.log('🎉 CBM-01 installed (codebuff-mod).');
+console.log('🎉 CBM-01 installed.');
 console.log('\n');
 console.log('BYOK fork — bring your own API key.');
 console.log('\n');

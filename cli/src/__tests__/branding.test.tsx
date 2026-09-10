@@ -126,7 +126,7 @@ describe('shipped product identity', () => {
         console: { log: (line: string) => messages.push(line) },
       },
     )
-    expect(messages.join('\n')).toContain('CBM-01 installed (codebuff-mod)')
+    expect(messages.join('\n')).toContain('CBM-01 installed.')
     expect(messages.join('\n')).toContain('Run: cbm')
     expect(removed).toEqual(['codebuff.exe', 'codebuff-mod.exe'])
   })

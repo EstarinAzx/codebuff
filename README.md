@@ -1,6 +1,6 @@
 # CBM-01
 
-CBM-01 is a standalone coding-agent fork of [Codebuff](https://github.com/CodebuffAI/codebuff). Run it inside your project, connect your chosen provider, and ask it to read, edit, and verify code.
+CBM-01 is a standalone coding assistant for your terminal. Connect an API-key or subscription provider, then ask it to read, edit, and verify code in your project.
 
 The display name is **CBM-01** (zero, no spaces). The package remains `codebuff-mod`; launch with `cbm`.
 
