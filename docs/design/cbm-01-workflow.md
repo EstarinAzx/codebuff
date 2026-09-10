@@ -11,7 +11,7 @@ The [spec](../prd.md) owns scope and the [ticket queue](../prd.md#work-queue) ow
 5. Ticket 01 runs independently of visual selection. Ticket 02 waits for the user's direction; neither the default HTML radio selection nor an agent recommendation is approval. Stop the relay with `needs_visual_direction` when no unblocked implementation ticket remains. Preserve the queue rather than marking it complete.
 6. Each worker checks existing branches/commits before acting, implements the ticket, runs relevant verification, commits only its files, records evidence in the ticket, and reports `continue`, `done`, or `blocked`. This request authorizes local work, not remote publication. No blanket staging, public issue/comment creation, package release, or credential changes.
 7. The controller independently checks results and obtains a cold review. Failed checks stop integration. Known baseline failures must be reproduced at the base revision before being classified as pre-existing.
-8. On full verification, merge `feature/cbm-01` into `modded` with `--no-ff`. This preserves the implementation commits and creates one revertible integration boundary. Never merge it into `main` or force-push either published branch. Leave remote publishing for a separate user request.
+8. On full verification, the controller or an explicitly authorized ticket-03 integrator merges `feature/cbm-01` into `modded` with `--no-ff`. The integrator's brief must name the source checkout, and that checkout must have no unexpected changes. This preserves the implementation commits and creates one revertible integration boundary. Never merge it into `main` or force-push either published branch. Leave remote publishing for a separate user request.
 
 ## Merge surfaces
 
