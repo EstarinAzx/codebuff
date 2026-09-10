@@ -2,7 +2,7 @@ import React, { useMemo } from 'react'
 
 import { LOGO, LOGO_SMALL, SHADOW_CHARS } from '../login/constants'
 import { parseLogoLines } from '../login/utils'
-import { IS_FREEBUFF } from '../utils/constants'
+import { DISPLAY_NAME, IS_FREEBUFF } from '../utils/constants'
 
 interface UseLogoOptions {
   /**
@@ -13,7 +13,11 @@ interface UseLogoOptions {
    * Optional function to apply styling to each character (e.g., for sheen animation)
    * If not provided, default coloring is applied (white blocks, accent shadows)
    */
-  applySheenToChar?: (char: string, charIndex: number, lineIndex: number) => React.ReactNode
+  applySheenToChar?: (
+    char: string,
+    charIndex: number,
+    lineIndex: number,
+  ) => React.ReactNode
   /**
    * Color to apply to the text variant
    */
@@ -28,7 +32,7 @@ interface UseLogoOptions {
   blockColor?: string
   /**
    * Optional vertical budget (in rows) for the logo. When fewer than the
-   * ASCII art's 6 lines are available, the hook downgrades to the single-line
+   * artwork's rows are available, the hook downgrades to the single-line
    * text variant so callers on short terminals don't have to special-case it.
    */
   maxHeight?: number
@@ -46,21 +50,17 @@ interface LogoResult {
   textBlock: string
 }
 
-/**
- * Hook to render a logo based on available width
- * Returns a fully formatted React component and text block that "just work"
- *
- * Returns:
- * - Full ASCII logo for width >= 92
- * - Small ASCII logo for width >= 20
- * - Text variant "CODEBUFF" or "Codebuff CLI" for narrow widths
- *
- * The hook handles ALL formatting internally including:
- * - Line parsing and width limiting
- * - Optional character-level styling (sheen animation) for React component
- * - Text wrapping and block formatting for plain text contexts
- * - No consumer needs to know about parseLogoLines, split, join, etc.
- */
+// Measure the actual art once. A historical breakpoint can silently crop a new logo.
+const LOGO_VARIANTS = [LOGO, LOGO_SMALL].map((art) => {
+  const lines = parseLogoLines(art)
+  return {
+    art,
+    width: Math.max(...lines.map((line) => line.length)),
+    height: lines.length,
+  }
+})
+
+/** Ghostline stays compact; Freebuff uses the largest complete art that fits. */
 export const useLogo = ({
   availableWidth,
   applySheenToChar,
@@ -69,21 +69,18 @@ export const useLogo = ({
   blockColor = '#ffffff',
   maxHeight,
 }: UseLogoOptions): LogoResult => {
-  // The ASCII art (full and small) is 6 lines tall. If the caller can't spare
-  // that many rows, collapse straight to the single-line text variant.
-  const ASCII_LOGO_LINES = 6
-  const rawLogoString = useMemo(() => {
-    if (maxHeight != null && maxHeight < ASCII_LOGO_LINES) {
-      return IS_FREEBUFF ? 'FREEBUFF' : 'CODEBUFF'
-    }
-    if (availableWidth >= 92) return LOGO
-    if (availableWidth >= 20) return LOGO_SMALL
-    return IS_FREEBUFF ? 'FREEBUFF' : 'CODEBUFF'
-  }, [availableWidth, maxHeight])
+  const rawLogoString = useMemo(
+    () =>
+      (IS_FREEBUFF ? LOGO_VARIANTS.find(
+        ({ width, height }) =>
+          width <= availableWidth && (maxHeight == null || height <= maxHeight),
+      )?.art : undefined) ?? DISPLAY_NAME,
+    [availableWidth, maxHeight],
+  )
 
   // Format text block for plain text contexts (chat messages, etc.)
   const textBlock = useMemo(() => {
-    if (rawLogoString === 'CODEBUFF' || rawLogoString === 'FREEBUFF') {
+    if (rawLogoString === DISPLAY_NAME) {
       return '' // Don't show ASCII art for text-only variant in plain text contexts
     }
     // Parse and format for plain text display
@@ -95,24 +92,14 @@ export const useLogo = ({
   // Format component for React contexts (login modal, etc.)
   const component = useMemo(() => {
     // Text-only variant for very narrow widths
-    if (rawLogoString === 'CODEBUFF' || rawLogoString === 'FREEBUFF') {
-      const brandName = IS_FREEBUFF ? 'Freebuff' : 'Codebuff'
-      // When we collapsed to text purely to fit a short terminal (not because
-      // the terminal is narrow), keep it to the bare brand name — "Freebuff
-      // CLI" reads as filler in that already-cramped space.
-      const forcedByHeight = maxHeight != null && maxHeight < ASCII_LOGO_LINES
-      const displayText =
-        availableWidth < 30 || forcedByHeight
-          ? brandName
-          : `${brandName} CLI`
-
+    if (rawLogoString === DISPLAY_NAME) {
       return (
         <text style={{ wrapMode: 'none' }}>
           <b>
             {textColor ? (
-              <span fg={textColor}>{displayText}</span>
+              <span fg={textColor}>{DISPLAY_NAME}</span>
             ) : (
-              <>{displayText}</>
+              <>{DISPLAY_NAME}</>
             )}
           </b>
         </text>
@@ -130,14 +117,26 @@ export const useLogo = ({
       }
       // Block characters use blockColor (white in dark mode, black in light mode)
       if (char === '█') {
-        return <span key={charIndex} fg={blockColor}>{char}</span>
+        return (
+          <span key={charIndex} fg={blockColor}>
+            {char}
+          </span>
+        )
       }
       // Shadow/border characters get accent color
       if (SHADOW_CHARS.has(char)) {
-        return <span key={charIndex} fg={accentColor}>{char}</span>
+        return (
+          <span key={charIndex} fg={accentColor}>
+            {char}
+          </span>
+        )
       }
       // Other characters use accent color
-      return <span key={charIndex} fg={accentColor}>{char}</span>
+      return (
+        <span key={charIndex} fg={accentColor}>
+          {char}
+        </span>
+      )
     }
 
     return (
@@ -155,7 +154,15 @@ export const useLogo = ({
         ))}
       </>
     )
-  }, [rawLogoString, availableWidth, applySheenToChar, textColor, accentColor, blockColor, maxHeight])
+  }, [
+    rawLogoString,
+    availableWidth,
+    applySheenToChar,
+    textColor,
+    accentColor,
+    blockColor,
+    maxHeight,
+  ])
 
   return { component, textBlock }
 }

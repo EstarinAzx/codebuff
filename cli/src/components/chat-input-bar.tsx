@@ -20,6 +20,7 @@ import { useTerminalBackground } from '../hooks/use-terminal-background'
 import { tryGetProjectRoot } from '../project-files'
 import { useChatStore } from '../state/chat-store'
 import { shouldInterceptChatInputKey } from '../utils/chat-input-key-intercept'
+import { IS_FREEBUFF } from '../utils/constants'
 import { getInputModeConfig } from '../utils/input-modes'
 import { BORDER_CHARS } from '../utils/ui-constants'
 
@@ -150,9 +151,9 @@ export const ChatInputBar = ({
   // transparent cells, and OpenTUI never repaints unpainted cells, so a truly
   // transparent box lets stale frame content bleed through. Painting the
   // terminal's own background color (OSC 11) looks identical to transparent
-  // while overwriting stale cells; black fallback when the query goes
-  // unanswered.
-  const inputBoxBg = useTerminalBackground() ?? '#000000'
+  // while overwriting stale cells. Ghostline falls back to its opaque theme
+  // base when the query goes unanswered; Freebuff retains its black fallback.
+  const inputBoxBg = useTerminalBackground() ?? (IS_FREEBUFF ? '#000000' : theme.agentContentBg)
 
   // In the home directory (or an ancestor) the file tree is only scanned a few
   // levels deep, so tell the user why deeper files don't show up.
@@ -304,7 +305,9 @@ export const ChatInputBar = ({
 
   const effectivePlaceholder =
     inputMode === 'default' ? inputPlaceholder : modeConfig.placeholder
-  const borderColor = theme[modeConfig.color]
+  const borderColor = !IS_FREEBUFF && inputMode === 'default'
+    ? inputFocused ? theme.primary : theme.border
+    : theme[modeConfig.color]
 
   if (askUserState) {
     return (
@@ -388,7 +391,7 @@ export const ChatInputBar = ({
               <text>
                 <span
                   bg={theme.info}
-                  fg={theme.background}
+                  fg={IS_FREEBUFF ? theme.background : theme.agentContentBg}
                 >{` ${modeConfig.label} `}</span>
               </text>
             </box>
@@ -410,7 +413,7 @@ export const ChatInputBar = ({
               that it's a focusable input — costs no extra height. */}
           {!modeConfig.label && !modeConfig.icon && (
             <box style={{ flexShrink: 0 }}>
-              <text style={{ fg: theme.primary }}>❯</text>
+              <text style={{ fg: IS_FREEBUFF || inputFocused ? theme.primary : theme.muted }}>❯</text>
             </box>
           )}
           <MultilineInput
@@ -476,7 +479,7 @@ export const ChatInputBar = ({
             justifyContent: shouldCenterInputVertically
               ? 'center'
               : 'flex-start',
-            minHeight: 3,
+            minHeight: IS_FREEBUFF ? 3 : 1,
             gap: 0,
           }}
         >
@@ -492,7 +495,7 @@ export const ChatInputBar = ({
                 <text>
                   <span
                     bg={theme.info}
-                    fg={theme.background}
+                    fg={IS_FREEBUFF ? theme.background : theme.agentContentBg}
                   >{` ${modeConfig.label} `}</span>
                 </text>
               </box>

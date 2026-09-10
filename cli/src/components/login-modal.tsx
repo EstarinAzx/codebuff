@@ -18,7 +18,7 @@ import { useSheenAnimation } from '../hooks/use-sheen-animation'
 import { useTheme } from '../hooks/use-theme'
 import { formatUrl, calculateResponsiveLayout } from '../login/utils'
 import { useLoginStore } from '../state/login-store'
-import { IS_FREEBUFF } from '../utils/constants'
+import { CLI_COMMAND, IS_FREEBUFF } from '../utils/constants'
 import { copyTextToClipboard, isRemoteSession } from '../utils/clipboard'
 import { getFingerprintId } from '../utils/fingerprint'
 import { logger } from '../utils/logger'
@@ -227,6 +227,7 @@ export const LoginModal = ({
   const blockColor = getLogoBlockColor(theme.name)
   const accentColor = getLogoAccentColor(theme.name)
   const { applySheenToChar } = useSheenAnimation({
+    enabled: IS_FREEBUFF,
     logoColor: theme.foreground,
     accentColor,
     blockColor,
@@ -238,8 +239,9 @@ export const LoginModal = ({
   // Get the logo component based on available content width
   const { component: logoComponent } = useLogo({
     availableWidth: contentMaxWidth,
+    maxHeight: Math.max(1, terminalHeight - 12),
     applySheenToChar,
-    textColor: theme.foreground,
+    textColor: IS_FREEBUFF ? theme.foreground : theme.primary,
   })
 
   // Enable auto-copy when user selects text (drag to select)
@@ -460,7 +462,7 @@ export const LoginModal = ({
                   <span fg={theme.secondary}>
                     Tip: Can't copy? Exit and run{' '}
                   </span>
-                  <span fg={theme.primary}>{IS_FREEBUFF ? 'freebuff' : 'codebuff'} login</span>
+                  <span fg={theme.primary}>{CLI_COMMAND} login</span>
                   <span fg={theme.secondary}>
                     {' '}instead.
                   </span>

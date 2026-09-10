@@ -1,7 +1,7 @@
 {
   "name": "codebuff-mod",
   "version": "1.4.1",
-  "description": "BYOK fork of the Codebuff CLI. Bring your own provider key (OpenAI, Anthropic, OpenRouter, OpenCode Zen/Go, custom OpenAI-compat). No codebuff.com account required.",
+  "description": "CBM-01 is a standalone terminal coding assistant. Connect your own API-key or subscription provider and work with your chosen model.",
   "license": "MIT",
   "bin": {
     "codebuff-mod": "index.js",

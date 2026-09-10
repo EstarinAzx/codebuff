@@ -3,6 +3,7 @@ import { homedir } from 'os'
 import { dirname, join } from 'path'
 
 import { getCliEnv } from './env'
+import { IS_FREEBUFF } from './constants'
 
 import type { MarkdownPalette } from './markdown-renderer'
 import type { CliEnv } from '../types/env'
@@ -93,14 +94,17 @@ export function getLogoBlockColor(
 
 /**
  * Get the accent color for the logo based on theme and terminal capabilities.
- * Returns the primary green color with appropriate fallback.
+ * Returns the product accent with an appropriate limited-color fallback.
  */
 export function getLogoAccentColor(
   themeName: ThemeName,
   env: CliEnv = getCliEnv(),
 ): string {
   const isTruecolor = supportsTruecolor(env)
-  // The primary green color - 'lime' is CSS bright green
+  if (!IS_FREEBUFF) {
+    return isTruecolor ? chatThemes[themeName].primary : themeName === 'dark' ? 'fuchsia' : 'purple'
+  }
+  // Freebuff's primary green and its existing ANSI fallbacks.
   if (themeName === 'dark') {
     return isTruecolor ? '#9EFC62' : 'lime'
   }
@@ -963,9 +967,68 @@ const DEFAULT_CHAT_THEMES: Record<ThemeName, ChatTheme> = {
   },
 }
 
-export const chatThemes = {
-  dark: DEFAULT_CHAT_THEMES.dark,
-  light: DEFAULT_CHAT_THEMES.light,
+// PORT: Ghostline uses the existing semantic roles. Freebuff retains its palette.
+// OKLCH anchors and the terminal conversion are recorded in DESIGN.md.
+function ghostlineTheme(name: ThemeName): ChatTheme {
+  const dark = name === 'dark'
+  const primary = dark ? '#c9b7ff' : '#644b9e'
+  const foreground = dark ? '#eceef5' : '#1f2129'
+  const muted = dark ? '#a6abb8' : '#545864'
+  const base = dark ? '#0b0d13' : '#f7f8fc'
+  const surface = dark ? '#13161d' : '#eceef5'
+  const selected = dark ? '#30283e' : '#dfdbed'
+  const border = dark ? '#626575' : '#767987'
+  return {
+    ...DEFAULT_CHAT_THEMES[name],
+    primary,
+    secondary: muted,
+    foreground,
+    muted,
+    // The terminal owns the canvas; explicit fills still erase stale cells.
+    background: 'transparent',
+    surface,
+    surfaceHover: selected,
+    border,
+    info: primary,
+    link: dark ? '#b4dbef' : '#285f7c',
+    directory: muted,
+    success: dark ? '#88cfad' : '#226644',
+    warning: dark ? '#e5bd80' : '#765018',
+    error: dark ? '#f09d9e' : '#9b303b',
+    aiLine: muted,
+    userLine: primary,
+    aiPanelBorder: dark ? '#2f333d' : '#c9cbd5',
+    agentToggleHeaderBg: surface,
+    agentToggleExpandedBg: selected,
+    agentFocusedBg: selected,
+    agentContentBg: base,
+    inputFg: foreground,
+    inputFocusedFg: foreground,
+    modeFastBg: surface,
+    modeFastText: muted,
+    modeMaxBg: surface,
+    modeMaxText: muted,
+    modePlanBg: surface,
+    modePlanText: muted,
+    imageCardBorder: border,
+    markdown: {
+      codeBackground: surface,
+      codeHeaderFg: muted,
+      inlineCodeFg: primary,
+      codeTextFg: foreground,
+      headingFg: { 1: foreground, 2: foreground, 3: foreground, 4: foreground, 5: foreground, 6: foreground },
+      listBulletFg: muted,
+      blockquoteBorderFg: border,
+      blockquoteTextFg: muted,
+      dividerFg: dark ? '#2f333d' : '#c9cbd5',
+      codeMonochrome: false,
+    },
+  }
+}
+
+export const chatThemes = IS_FREEBUFF ? DEFAULT_CHAT_THEMES : {
+  dark: ghostlineTheme('dark'),
+  light: ghostlineTheme('light'),
 }
 
 export const createMarkdownPalette = (theme: ChatTheme): MarkdownPalette => {

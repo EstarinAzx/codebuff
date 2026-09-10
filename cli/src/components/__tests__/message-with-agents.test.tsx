@@ -6,6 +6,7 @@ import { initializeThemeStore } from '../../hooks/use-theme'
 import { useChatStore } from '../../state/chat-store'
 import { useMessageBlockStore } from '../../state/message-block-store'
 import { chatThemes, createMarkdownPalette } from '../../utils/theme-system'
+import { IS_FREEBUFF } from '../../utils/constants'
 import { MessageWithAgents } from '../message-with-agents'
 
 import type { ChatMessage } from '../../types/chat'
@@ -392,8 +393,9 @@ describe('MessageWithAgents', () => {
         />,
       )
 
-      // Mode text should appear
-      expect(markup).toContain('Edit Mode')
+      // Freebuff has no mode divider; the standalone CLI keeps its label.
+      if (IS_FREEBUFF) expect(markup).toBe('')
+      else expect(markup).toContain('Edit Mode')
       // Original message content should not be rendered
       expect(markup).not.toContain('this content should be ignored')
     })

@@ -12,6 +12,7 @@ import { useChatStore } from '../state/chat-store'
 import { useMessageBlockStore } from '../state/message-block-store'
 import { splitByAgentSize } from '../utils/block-processor'
 import { getCliEnv } from '../utils/env'
+import { IS_FREEBUFF } from '../utils/constants'
 import {
   AGENT_CONTENT_HORIZONTAL_PADDING,
   MAX_AGENT_DEPTH,
@@ -418,7 +419,9 @@ const AgentMessage = memo(
               style={{
                 flexDirection: 'row',
                 alignSelf: 'flex-start',
-                backgroundColor: isCollapsed ? theme?.muted : theme?.success,
+                backgroundColor: IS_FREEBUFF
+                  ? isCollapsed ? theme?.muted : theme?.success
+                  : isCollapsed ? theme?.agentToggleHeaderBg : theme?.agentToggleExpandedBg,
                 paddingLeft: 1,
                 paddingRight: 1,
               }}

@@ -16,6 +16,7 @@ import {
 import { InputCursor } from './input-cursor'
 import { useTheme } from '../hooks/use-theme'
 import { useChatStore } from '../state/chat-store'
+import { IS_FREEBUFF } from '../utils/constants'
 import {
   getKeypadPrintableSequence,
   isKeypadEnter,
@@ -25,7 +26,7 @@ import {
   isLinefeedActingAsEnter,
   markReturnKeySeenForKey,
 } from '../utils/terminal-enter-detection'
-import { supportsTruecolor } from '../utils/theme-system'
+import { getLogoAccentColor, supportsTruecolor } from '../utils/theme-system'
 import { calculateNewCursorPosition } from '../utils/word-wrap-utils'
 
 import type { InputValue } from '../types/store'
@@ -1208,7 +1209,7 @@ export const MultilineInput = forwardRef<
             {shouldHighlight ? (
               <span
                 bg={highlightBg}
-                fg={theme.background}
+                fg={IS_FREEBUFF ? theme.background : theme.agentContentBg}
                 attributes={TextAttributes.BOLD}
               >
                 {activeChar === ' ' ? '\u00a0' : activeChar}
@@ -1218,7 +1219,7 @@ export const MultilineInput = forwardRef<
                 visible={true}
                 focused={focused}
                 shouldBlink={effectiveShouldBlinkCursor}
-                color={supportsTruecolor() ? theme.info : 'lime'}
+                color={supportsTruecolor() ? theme.info : IS_FREEBUFF ? 'lime' : getLogoAccentColor(theme.name)}
                 key={lastActivity}
               />
             )}

@@ -6,6 +6,7 @@ import { TextAttributes } from '@opentui/core'
 import React, { memo } from 'react'
 
 import { useTheme } from '../../../hooks/use-theme'
+import { IS_FREEBUFF } from '../../../utils/constants'
 import { Button } from '../../button'
 import { SYMBOLS } from '../constants'
 
@@ -39,7 +40,8 @@ export const QuestionOption: React.FC<QuestionOptionProps> = memo(
     const symbol = isMultiSelect
       ? isSelected ? SYMBOLS.CHECKBOX_CHECKED : SYMBOLS.CHECKBOX_UNCHECKED
       : isSelected ? SYMBOLS.SELECTED : SYMBOLS.UNSELECTED
-    const fg = isFocused ? '#000000' : isSelected ? selectedFg : theme.muted
+    const focusedFg = IS_FREEBUFF ? '#000000' : theme.agentContentBg
+    const fg = isFocused ? focusedFg : isSelected ? selectedFg : theme.muted
     const attributes = isFocused || isSelected ? TextAttributes.BOLD : undefined
 
     return (
@@ -62,7 +64,7 @@ export const QuestionOption: React.FC<QuestionOptionProps> = memo(
         {isFocused && description && (
           <text
             style={{
-              fg: '#000000',
+              fg: focusedFg,
               marginLeft: 2,
             }}
           >

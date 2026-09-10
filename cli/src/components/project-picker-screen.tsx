@@ -14,6 +14,7 @@ import { useSheenAnimation } from '../hooks/use-sheen-animation'
 import { useTerminalLayout } from '../hooks/use-terminal-layout'
 import { useTheme } from '../hooks/use-theme'
 import { exitCliCleanly } from '../utils/exit-cleanly'
+import { IS_FREEBUFF } from '../utils/constants'
 import { formatCwd } from '../utils/path-helpers'
 import { loadRecentProjects } from '../utils/recent-projects'
 import { isPlainEnterKey } from '../utils/terminal-enter-detection'
@@ -38,7 +39,7 @@ const LAYOUT = {
   COMPACT_MODE_THRESHOLD: 12,
 
   // Decorative element heights
-  LOGO_HEIGHT: 8,
+  LOGO_HEIGHT: IS_FREEBUFF ? 8 : 1,
   HELP_TEXT_HEIGHT: 2,
 
   // Spacing constants (used in normal mode)
@@ -187,6 +188,7 @@ export const ProjectPickerScreen: React.FC<ProjectPickerScreenProps> = ({
   const blockColor = getLogoBlockColor(theme.name)
   const accentColor = getLogoAccentColor(theme.name)
   const { applySheenToChar } = useSheenAnimation({
+    enabled: IS_FREEBUFF,
     logoColor: theme.foreground,
     accentColor,
     blockColor,
@@ -197,8 +199,9 @@ export const ProjectPickerScreen: React.FC<ProjectPickerScreenProps> = ({
 
   const { component: logoComponent } = useLogo({
     availableWidth: contentMaxWidth,
+    maxHeight: Math.max(1, terminalHeight - 12),
     applySheenToChar,
-    textColor: theme.foreground,
+    textColor: IS_FREEBUFF ? theme.foreground : theme.primary,
   })
 
   // Handle directory selection from SelectableList
@@ -476,7 +479,7 @@ export const ProjectPickerScreen: React.FC<ProjectPickerScreenProps> = ({
             }}
             border={['top', 'bottom', 'left', 'right']}
           >
-            <text style={{ fg: '#1a1a1a' }}>Open</text>
+            <text style={{ fg: IS_FREEBUFF ? '#1a1a1a' : theme.agentContentBg }}>Open</text>
           </Button>
         </box>
       </box>

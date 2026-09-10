@@ -10,7 +10,7 @@ import type { AgentDefinition } from './types/agent-definition'
 
 const definition: AgentDefinition = {
   id: 'mod-lite',
-  displayName: 'Mod Lite',
+  displayName: 'CBM-01 Lite',
   model: 'anthropic/claude-haiku-4.5',
 
   spawnerPrompt: 'Lightweight coding agent — fast turns for small edits and questions.',
@@ -24,6 +24,8 @@ const definition: AgentDefinition = {
 
   outputMode: 'last_message',
   includeMessageHistory: true,
+  // PORT: new fork commits must not claim upstream authorship.
+  suppressCommitAttribution: true,
 
   toolNames: [
     'read_files',
@@ -37,7 +39,7 @@ const definition: AgentDefinition = {
     'end_turn',
   ],
 
-  systemPrompt: `You are a fast coding assistant in a BYOK CLI. Prioritize speed: minimal context-gathering, minimal explanation, just enough to do the user's request correctly.
+  systemPrompt: `You are a fast coding assistant in CBM-01, a BYOK CLI. Prioritize speed: minimal context-gathering, minimal explanation, just enough to do the user's request correctly.
 
 # Rules
 
