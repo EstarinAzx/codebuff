@@ -17,12 +17,15 @@
  */
 
 import type { ModelRequestParams, ModelResult } from './model-provider'
+import type { WebSearchFn } from '@codebuff/common/types/contracts/agent-runtime'
 import type {
   GetUserInfoFromApiKeyOutput,
   UserColumn,
 } from '@codebuff/common/types/contracts/database'
 
 export interface ForkHooks {
+  /** Capture the selected subscription search provider for a new run. */
+  getWebSearch?: () => WebSearchFn | undefined
   /**
    * BYOK Path C dispatch. Resolves the request against an active BYOK
    * profile (raw-key direct dispatch or codex OAuth) and returns the

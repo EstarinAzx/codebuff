@@ -19,6 +19,7 @@ import type {
 const STDERR_BUFFER_CAP = 8192
 
 const runningClients: Record<string, Client> = {}
+const startingClients = new Map<string, Promise<string>>()
 const listToolsCache: Record<
   string,
   ReturnType<typeof Client.prototype.listTools>
@@ -81,11 +82,32 @@ function hashConfig(config: MCPConfig): string {
 }
 
 export async function getMCPClient(config: MCPConfig): Promise<string> {
-  let key = hashConfig(config)
+  const key = hashConfig(config)
   if (key in runningClients) {
     return key
   }
+  const pending = startingClients.get(key)
+  if (pending) return pending
+  const starting = startMCPClient(config, key)
+  startingClients.set(key, starting)
+  try {
+    return await starting
+  } finally {
+    startingClients.delete(key)
+  }
+}
 
+/** Close only this configuration; never start a server just to stop it. */
+export async function closeMCPClient(config: MCPConfig): Promise<void> {
+  const key = hashConfig(config)
+  await startingClients.get(key)?.catch(() => {})
+  const client = runningClients[key]
+  delete runningClients[key]
+  delete listToolsCache[key]
+  await client?.close()
+}
+
+async function startMCPClient(config: MCPConfig, key: string): Promise<string> {
   let transport: Transport
   // Buffer the child process's stderr so that a server which crashes during
   // startup produces an actionable error instead of the opaque MCP SDK message
@@ -139,6 +161,7 @@ export async function getMCPClient(config: MCPConfig): Promise<string> {
   try {
     await client.connect(transport)
   } catch (error) {
+    await transport.close().catch(() => {})
     const baseMessage = getErrorObject(error).message
     if (config.type === 'stdio') {
       const commandStr = [config.command, ...(config.args ?? [])].join(' ')
@@ -155,6 +178,12 @@ export async function getMCPClient(config: MCPConfig): Promise<string> {
     )
   }
   runningClients[key] = client
+  client.onclose = () => {
+    if (runningClients[key] === client) {
+      delete runningClients[key]
+      delete listToolsCache[key]
+    }
+  }
 
   return key
 }
@@ -168,7 +197,10 @@ export function listMCPTools(
     throw new Error(`listTools: client not found with id: ${clientId}`)
   }
   if (!listToolsCache[clientId]) {
-    listToolsCache[clientId] = client.listTools(...args)
+    listToolsCache[clientId] = client.listTools(...args).catch((error) => {
+      delete listToolsCache[clientId]
+      throw error
+    })
   }
   return listToolsCache[clientId]
 }

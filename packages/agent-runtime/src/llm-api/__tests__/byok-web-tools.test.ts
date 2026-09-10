@@ -165,12 +165,12 @@ describe('callWebSearchAPI — BYOK direct Serper dispatch', () => {
 describe('callDocsSearchAPI — BYOK direct Context7 dispatch', () => {
   const context7Routes = (docText: string) => [
     {
-      match: 'context7.com/api/v1/search',
+      match: 'context7.com/api/v2/libs/search',
       response: {
         json: {
           results: [
             {
-              id: 'react',
+              id: '/facebook/react',
               title: 'React',
               description: 'UI library',
               branch: 'main',
@@ -184,7 +184,7 @@ describe('callDocsSearchAPI — BYOK direct Context7 dispatch', () => {
         },
       },
     },
-    { match: 'context7.com/api/v1/react', response: { text: docText } },
+    { match: 'context7.com/api/v2/context', response: { text: docText } },
   ]
 
   test('backend unconfigured → fetches docs from Context7 directly, never dials sentinel', async () => {
@@ -233,7 +233,7 @@ describe('callDocsSearchAPI — BYOK direct Context7 dispatch', () => {
   test('library not found on Context7 → clear error', async () => {
     const { fetchImpl } = makeRoutedFetch([
       {
-        match: 'context7.com/api/v1/search',
+        match: 'context7.com/api/v2/libs/search',
         response: { json: { results: [] } },
       },
     ])

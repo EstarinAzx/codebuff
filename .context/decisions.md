@@ -1,11 +1,13 @@
 ---
 type: decisions
 project: codebuff (fork — modded branch)
-updated: 2026-09-10
+updated: 2026-09-11
 tags: [decisions, modded]
 ---
 
 # Decisions — fork-local
+
+- [[2026-09-11-web-computer-tools]] — Reuse the existing Codex subscription for search and local MCP tools for browser/desktop control, without another service key.
 
 - [[2026-09-10-cbm-01-identity]] — Original display name and compatibility boundary; current RD-X-96 identity is in [PRODUCT.md](../PRODUCT.md), with the selected Ghostline palette in [DESIGN.md](../DESIGN.md).
 - [[2026-09-09-grok-subscription]] — Grok means subscription OAuth; keep identity claims and account settings outside this integration.

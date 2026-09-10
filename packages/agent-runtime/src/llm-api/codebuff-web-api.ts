@@ -7,6 +7,7 @@ import {
 } from './fork-impls/byok-web-tools'
 
 import type { ClientEnv, CiEnv } from '@codebuff/common/types/contracts/env'
+import type { WebSearchFn } from '@codebuff/common/types/contracts/agent-runtime'
 import type { JSONObject } from '@codebuff/common/types/json'
 import type { Logger } from '@codebuff/common/types/contracts/logger'
 
@@ -173,10 +174,12 @@ export async function callWebSearchAPI(params: {
   env: CodebuffWebApiEnv
   baseUrl?: string
   apiKey?: string
+  webSearch?: WebSearchFn
+  signal?: AbortSignal
 }): Promise<{ result?: string; error?: string; creditsUsed?: number }> {
   const { query, depth = 'standard', repoUrl, fetch, logger, env } = params
 
-  // BYOK fork: no hosted backend configured → go straight to Serper instead
+  // BYOK fork: no hosted backend configured → use subscription or keyed search
   // of dialing the sentinel URL (which is contractually never reachable).
   if (
     !isBackendConfigured({
@@ -185,6 +188,9 @@ export async function callWebSearchAPI(params: {
       baseUrlOverride: params.baseUrl,
     })
   ) {
+    if (params.webSearch) {
+      return params.webSearch({ query, depth, signal: params.signal })
+    }
     return byokWebSearch({ query, depth, fetch, logger, ciEnv: env.ciEnv })
   }
 

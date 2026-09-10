@@ -6,7 +6,7 @@
  * the source of truth for the command logic.
  */
 
-import { setActiveByokProfile, setByokAgentBindings, startGrokDeviceLogin, saveGrokCredentials, clearGrokCredentials, getValidGrokCredentials, fetchGrokModels } from '@codebuff/sdk'
+import { setActiveByokProfile, setByokAgentBindings, setByokSearchProfile, startGrokDeviceLogin, saveGrokCredentials, clearGrokCredentials, getValidGrokCredentials, fetchGrokModels } from '@codebuff/sdk'
 import { safeOpen } from '../utils/open-url'
 
 import {
@@ -19,6 +19,7 @@ import {
   clearAgentBinding,
   describeProfileForLog,
   getActiveProfile,
+  getSearchProfile,
   getPresetDefaults,
   listPresets,
   loadAgentBindings,
@@ -41,6 +42,7 @@ import type { RouterParams } from './command-registry'
 // ── shared helpers ───────────────────────────────────────────────────────
 
 function syncSdkActiveProfile(profile: ProviderProfile | null): void {
+  setByokSearchProfile(getSearchProfile())
   if (!profile) {
     setActiveByokProfile(null)
     return

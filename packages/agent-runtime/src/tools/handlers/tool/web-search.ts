@@ -9,6 +9,7 @@ import type {
 } from '@codebuff/common/tools/list'
 import type { ClientEnv, CiEnv } from '@codebuff/common/types/contracts/env'
 import type { Logger } from '@codebuff/common/types/contracts/logger'
+import type { WebSearchFn } from '@codebuff/common/types/contracts/agent-runtime'
 
 export const handleWebSearch = (async (params: {
   previousToolCallFinished: Promise<void>
@@ -27,6 +28,8 @@ export const handleWebSearch = (async (params: {
   fetch: typeof globalThis.fetch
   clientEnv: ClientEnv
   ciEnv: CiEnv
+  webSearch?: WebSearchFn
+  signal?: AbortSignal
 }): Promise<{
   output: CodebuffToolOutput<'web_search'>
   creditsUsed: number
@@ -77,6 +80,8 @@ export const handleWebSearch = (async (params: {
       logger,
       apiKey,
       env: { clientEnv, ciEnv },
+      webSearch: params.webSearch,
+      signal: params.signal,
     })
 
     if (webApi.error) {

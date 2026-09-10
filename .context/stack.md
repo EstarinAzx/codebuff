@@ -1,7 +1,7 @@
 ---
 type: stack
 project: codebuff (fork — modded branch)
-updated: 2026-09-09
+updated: 2026-09-11
 tags: [stack, tooling, byok]
 ---
 
@@ -26,7 +26,8 @@ The fork is **BYOK-only** — no codebuff.com backend in-repo. The only network 
 
 - User's own provider keys, or subscription OAuth through the `codex` and `grok` presets in `cli/src/utils/providers.ts`. Grok uses xAI device authorization and the subscription CLI proxy; Codex uses the ChatGPT backend.
 - Direct HTTP via SDK Path C (`sdk/src/impl/fork-impls/byok-resolver.ts createDirectProviderModel`) — no codebuff.com hop
-- **Web tools (since the web_search rewire):** `web_search` → serper.dev / brave / tavily direct (env keys `SERPER_API_KEY` / `BRAVE_API_KEY` / `TAVILY_API_KEY`, primary via `CBM_SEARCH_PROVIDER`, fallback chain); `read_docs` → context7.com direct (keyless; optional `CONTEXT7_API_KEY`). No key → `web_search` un-advertised via template gate.
+- **Web tools:** a saved RD-X-96 Codex profile can supply `web_search` for any selected model. Without that subscription provider, the existing Serper/Brave/Tavily key chain remains available. The gate hides search only when neither route exists. `read_docs` retains its Context7 client.
+- **Local control:** opt-in Playwright MCP and Windows-MCP, launched through the existing MCP client. [Tool documentation](../docs/computer-tools.md) owns pins, prerequisites and product-scoped settings; these are downloaded tools, not new monorepo dependencies.
 - No central billing, analytics, or auth. Local profiles are in `~/.config/manicode/providers.json`; OAuth tokens are separate per-profile stores in `codex-oauth.json` and `grok-oauth.json` (0600 on POSIX).
 
 SDK Path B (`CODEBUFF_USE_BACKEND=1`, in `sdk/src/impl/database.ts`) still exists for external SDK consumers but targets a *remote* codebuff.com — the fork no longer hosts Stripe/BigQuery/PostHog/auth. Those services are upstream's, not in this tree.

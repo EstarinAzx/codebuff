@@ -9,6 +9,7 @@ import { gateByokWebTools } from '../llm-api/fork-impls/byok-web-tools'
 
 import type { DynamicAgentValidationError } from '@codebuff/common/templates/agent-validation'
 import type { AgentTemplate } from '@codebuff/common/types/agent-template'
+import type { WebSearchFn } from '@codebuff/common/types/contracts/agent-runtime'
 import type { FetchAgentFromDatabaseFn } from '@codebuff/common/types/contracts/database'
 import type { CiEnv } from '@codebuff/common/types/contracts/env'
 import type { Logger } from '@codebuff/common/types/contracts/logger'
@@ -98,6 +99,7 @@ export function assembleLocalAgentTemplates(params: {
   logger: Logger
   // BYOK fork: when provided, gates tools that need user-supplied keys
   ciEnv?: CiEnv
+  webSearch?: WebSearchFn
 }): {
   agentTemplates: Record<string, AgentTemplate>
   validationErrors: DynamicAgentValidationError[]
@@ -111,7 +113,11 @@ export function assembleLocalAgentTemplates(params: {
 
   // Use dynamic templates only
 
-  const agentTemplates = gateByokWebTools({ ...dynamicTemplates }, ciEnv)
+  const agentTemplates = gateByokWebTools(
+    { ...dynamicTemplates },
+    ciEnv,
+    params.webSearch,
+  )
   return { agentTemplates, validationErrors }
 }
 

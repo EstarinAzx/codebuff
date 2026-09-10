@@ -26,6 +26,12 @@ import type {
 import type { Logger } from './logger'
 import type { TraceWriter } from './trace'
 
+export type WebSearchFn = (input: {
+  query: string
+  depth?: 'standard' | 'deep'
+  signal?: AbortSignal
+}) => Promise<{ result?: string; error?: string; creditsUsed?: number }>
+
 /** Shared dependencies */
 export type AgentRuntimeDeps = {
   // Environment
@@ -58,6 +64,8 @@ export type AgentRuntimeDeps = {
   /** Optional debug trace of agent message histories (see TraceWriter) */
   traceWriter?: TraceWriter
   fetch: typeof globalThis.fetch
+  /** Optional subscription search, captured for this run; contains no credentials. */
+  webSearch?: WebSearchFn
 }
 
 /** Per-run dependencies */

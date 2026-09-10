@@ -4,6 +4,7 @@ import {
   getValidChatGptOAuthCredentials,
   setActiveByokProfile,
   setByokAgentBindings,
+  setByokSearchProfile,
 } from '@codebuff/sdk'
 
 import { initializeThemeStore } from '../hooks/use-theme'
@@ -12,7 +13,7 @@ import { initTimestampFormatter } from '../utils/helpers'
 import { enableManualThemeRefresh } from '../utils/theme-system'
 import { initAnalytics } from '../utils/analytics'
 import { getFingerprintId } from '../utils/fingerprint'
-import { buildSdkBindings, getActiveProfile } from '../utils/providers'
+import { buildSdkBindings, getActiveProfile, getSearchProfile } from '../utils/providers'
 import { initializeDirenv } from './init-direnv'
 
 export async function initializeApp(params: { cwd?: string }): Promise<void> {
@@ -74,6 +75,7 @@ export async function initializeApp(params: { cwd?: string }): Promise<void> {
   // Re-pushed by /providers:bind, /providers:unbind, /providers:remove.
   try {
     setByokAgentBindings(buildSdkBindings())
+    setByokSearchProfile(getSearchProfile())
   } catch (error) {
     console.debug('Failed to apply BYOK agent bindings at startup:', error)
   }
