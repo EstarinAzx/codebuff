@@ -1,6 +1,6 @@
-# Freebuff
+# CBM-01
 
-Freebuff is the public, free coding agent built from the Codebuff agent framework.
+CBM-01 is the standalone coding-agent fork on `modded`. Launch it with `cbm`. Preserve the existing package and provider compatibility while changing product display branding.
 
 ## Key Technologies
 
@@ -33,3 +33,19 @@ Freebuff is the public, free coding agent built from the Codebuff agent framewor
 
 - `docs/agents-and-tools.md`
 - `docs/testing.md`
+
+## Agent skills
+
+For the CBM-01 rebrand, read `docs/prd.md` and `docs/design/cbm-01-workflow.md`. Read `MERGE-STRATEGY.md` before integration or upstream sync; `main` remains the upstream tree mirror and fork work belongs on `modded`.
+
+### Issue tracker
+
+The current local queue is in `docs/issues/`; see `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Use the canonical roles in `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Read existing domain context according to `docs/agents/domain.md`.

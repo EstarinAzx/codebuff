@@ -1,11 +1,13 @@
 ---
 type: overview
 project: codebuff (fork — modded branch)
-updated: 2026-09-09
+updated: 2026-09-10
 tags: [moc, codebuff, llm-proxy, byok]
 ---
 
-# Codebuff (fork) — Map
+# CBM-01 (fork) — Map
+
+**Current initiative:** Rebrand the fork as **CBM-01** (zero, no spaces). [Spec](../docs/prd.md), [HTML design options](../docs/design/cbm-01-options.html), and [workflow](../docs/design/cbm-01-workflow.md). No visual direction has been selected; the existing distribution identifiers below remain compatibility facts.
 
 Upstream Codebuff is a composable coding-agent monorepo where a hosted backend proxies LLM requests to upstream providers and bills users in credits via BigQuery + Stripe. CLI is a TUI built on OpenTUI + React. Also ships `freebuff`, the free tier.
 
@@ -20,6 +22,7 @@ Upstream is `CodebuffAI/codebuff`. The fork was renamed `EstarinAzx/codebuff` �
 ## Map
 
 - [[pick-up]] — the next session's handoff
+- [[happy-path]] — intended CBM-01 coding journey
 - [[stack]] — tech, build commands, workspaces
 - [[active-work]] — what's in flight on the `modded` branch
 - [[decisions]] — rationale for fork-local edits

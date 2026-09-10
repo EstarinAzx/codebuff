@@ -1,19 +1,19 @@
 ---
 type: handoff
-updated: 2026-09-09
+updated: 2026-09-10
 ---
 
 # Pick up
 
-**Start: read .context/overview.md + .context/active-work.md.**
+Read [[overview]] and [[active-work]], then [the CBM-01 spec](../docs/prd.md) and [workflow](../docs/design/cbm-01-workflow.md).
 
-**v1.4.1 is shipped.** Source is pushed on modded, tag v1.4.1 points to e049416ae, and GitHub has all three verified archives plus SHA256SUMS. npm registry-direct latest is 1.4.1. The installed cbm reports 1.4.1 and its executable hash matches the verified build. 117 targeted tests and all three package typechecks pass; independent review has no open findings.
+**Exact name: CBM-01, zero, no spaces.** The user invoked pick-up then vibe init for a cyberpunk rebrand and requested quick HTML options plus a saved merge workflow. v1.4.1 release work was already complete.
 
-**Next task: none required for the release.** To use Grok, run cbm and /providers:add grok [name], approve the xAI link, then /model and /providers:test. A live tool-using task remains useful acceptance testing: only the public device-code request has been verified live, not authenticated Grok inference. The user explicitly authorized publication without that step.
+**Next: ticket 01, visible identity cleanup.** Read [its checkpoint](../docs/issues/01-cbm-01-identity.md) and `.claude/relay/cbm-01.traycer.json` if present before resuming. The relay controller is `befadc45-117d-4502-95c0-8f4f9efb1313`; do not start a duplicate while its worker is active.
 
-Local release files are in **cli/dist-binaries/1.4.1/**; root-level archives remain 1.4.0. Linux architecture and contents are checked, not runtime execution. Future publication follows MERGE-STRATEGY.md Step 6: GitHub assets before npm. npm required an interactive TTY and the user's browser 2FA approval. A partial local tar dependency was repaired from its integrity-verified registry archive before the installed CLI passed.
+**Visual choice remains open.** [Compare A/B/C](../docs/design/cbm-01-options.html). No palette is user-approved. Ticket 02 waits for the direction; identity work can proceed independently.
 
-Landmines: preserve provider selection and existing Codex credentials; this session acquired no Grok tokens. Trust-bundle and cross-build paths are in active-work.md. Broad Windows baseline failures remain documented. .codeboarding/ is the user's and stays untracked.
+Keep fork work and baton commits on `modded` or its feature branch, never on the upstream tree mirror `main`. Preserve technical package/env/protocol/storage names, original notices, saved profiles, credential isolation, and working updater URLs. `.codeboarding/` remains user-owned. No release, package migration, or public issue publication is part of this local run.
 
 ## Related
 

@@ -388,11 +388,17 @@ Fork pushes the active BYOK profile + bindings at boot (`setActiveByokProfile(..
 
 ### LOW conflict risk
 
-#### `cli/src/login/constants.ts` + `cli/src/hooks/use-logo.tsx` — banner art
+#### CLI display branding and banner art — CBM-01
 
-ASCII mark "CODEBUFF - M1" (full) / "CBM" (small). Full-logo width threshold raised to `92`.
+The new required display identity is **CBM-01**, with zero and no spaces. The 2026-09-10 rebrand is tracked in [docs/prd.md](./docs/prd.md); the previous CODEBUFF - M1 banner and `92` width threshold describe the old implementation, not a merge requirement.
 
-**Resolve:** keep the fork mark + `92` threshold; bump the trailing letter only at fork milestones.
+**Resolve:** preserve the fork's display-brand constant and full/small/text logo behavior, including short-height fallback. Use widths measured from the replacement art. Re-anchor the change at the shared constants/logo seams if upstream moves them. Inspect title, help, warnings, exported conversations, OAuth callback display copy, and launcher messages as well as the banner.
+
+Keep original notices and truthful package, import, environment, storage, protocol, binary, and download identifiers. A display rebrand is not a distribution migration. Keep provider/auth behavior and the separate Freebuff build paths working. Run the final branding regression named by [the rebrand workflow](./docs/design/cbm-01-workflow.md) after future upstream merges; typechecks alone do not catch restored labels.
+
+#### CBM-01 feature integration
+
+Use an isolated `feature/cbm-01` branch from `modded`, followed by a reviewed `--no-ff` merge into `modded` after verification. Planning and baton commits belong on `modded`; the generic ticket-loop default of writing context to `main` must not contaminate the upstream tree mirror. The visual direction remains unselected until recorded from the user. [Workflow and merge checklist](./docs/design/cbm-01-workflow.md).
 
 #### `common/src/constants/model-config.ts`
 

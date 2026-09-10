@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>CBM-01 / Design lab</title>
+  <style>
+    :root { color-scheme:dark; --ink:oklch(94% .009 195); --soft:oklch(71% .014 195); --line:oklch(31% .017 195); --base:oklch(15% .01 195); --panel:oklch(19% .012 195); --accent:oklch(86% .14 185); --second:oklch(79% .14 345); --signal:oklch(82% .14 145); font:14px/1.55 "Cascadia Code","Consolas",monospace; }
+    * { box-sizing:border-box; }
+    body { margin:0; background:oklch(12% .008 195); color:var(--ink); }
+    button,input { font:inherit; }
+    a { color:inherit; text-underline-offset:4px; }
+    .masthead { padding:24px 34px; display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--line); gap:18px; }
+    .wordmark { font-size:21px; font-weight:800; letter-spacing:-.06em; }
+    .wordmark b { color:var(--accent); }
+    .eyebrow { color:var(--soft); font-size:11px; text-transform:uppercase; letter-spacing:.16em; }
+    .lab { max-width:1600px; margin:0 auto; padding:30px 34px 20px; }
+    .intro { display:flex; justify-content:space-between; align-items:end; gap:24px; margin-bottom:28px; }
+    h1 { margin:5px 0 0; font-size:clamp(24px,3vw,38px); font-weight:500; letter-spacing:-.055em; line-height:1.18; }
+    .intro p { max-width:47ch; color:var(--soft); margin:0; font:14px/1.6 system-ui,sans-serif; }
+    .workbench { display:grid; grid-template-columns:206px minmax(0,1fr); gap:26px; }
+    fieldset { border:0; padding:0; margin:0; min-width:0; }
+    legend { margin-bottom:15px; }
+    .directions { display:flex; flex-direction:column; gap:0; }
+    .choice { display:block; position:relative; padding:19px 12px 19px 0; border-top:1px solid var(--line); cursor:pointer; }
+    .choice:last-child { border-bottom:1px solid var(--line); }
+    .choice input,.screen-choice input { position:absolute; width:1px; height:1px; opacity:0; }
+    .choice:has(input:focus-visible),.screen-choice:has(input:focus-visible) { outline:2px solid var(--accent); outline-offset:5px; }
+    .choice .number { color:var(--soft); font-size:11px; display:block; margin-bottom:6px; }
+    .choice strong { display:block; font-size:15px; color:var(--soft); }
+    .choice:has(input:checked) strong,.choice:has(input:checked) .number { color:var(--accent); }
+    .choice:has(input:checked) .number::after { content:" / VIEWING"; }
+    .choice p { margin:7px 0 12px; color:var(--soft); font:12px/1.5 system-ui,sans-serif; }
+    .swatches { display:flex; gap:5px; }
+    .swatches i { width:25px; height:5px; display:block; background:var(--swatch); }
+    .aside-note { font:12px/1.6 system-ui,sans-serif; color:var(--soft); margin-top:22px; }
+    .preview-column { min-width:0; }
+    .preview-toolbar { display:flex; justify-content:space-between; align-items:center; gap:20px; margin-bottom:12px; }
+    .screens { display:flex; gap:6px; }
+    .screen-choice { position:relative; cursor:pointer; padding:5px 11px; border:1px solid transparent; color:var(--soft); font-size:11px; }
+    .screen-choice:has(input:checked) { border-color:var(--line); background:var(--panel); color:var(--ink); }
+    .terminal { border:1px solid var(--line); background:var(--base); min-height:610px; display:flex; flex-direction:column; overflow:hidden; }
+    .terminal-top { display:flex; align-items:center; justify-content:space-between; padding:11px 18px; border-bottom:1px solid var(--line); gap:15px; font-size:11px; color:var(--soft); }
+    .terminal-top .mode { color:var(--accent); }
+    .terminal-top .mode::before { content:"● "; }
+    .workspace { display:grid; grid-template-columns:minmax(0,1fr) 230px; flex:1; }
+    .canvas { padding:30px 32px 18px; display:flex; flex-direction:column; min-width:0; }
+    .screen { display:none; flex:1; }
+    body:has(#home:checked) .home-screen,body:has(#session:checked) .session-screen,body:has(#providers:checked) .providers-screen { display:flex; flex-direction:column; }
+    .boot-id { font-size:11px; letter-spacing:.08em; color:var(--accent); margin:0 0 17px; }
+    .hero-mark { display:flex; align-items:baseline; gap:12px; margin:4px 0 5px; }
+    .hero-mark h2 { font-size:clamp(40px,5.5vw,75px); line-height:1; letter-spacing:-.09em; margin:0; font-weight:800; }
+    .hero-mark h2 span { color:var(--accent); }
+    .hero-mark .suffix { font-size:12px; color:var(--soft); }
+    .tagline { color:var(--soft); max-width:48ch; font-size:13px; margin:17px 0 30px; }
+    .prompt-title { font-size:17px; font-weight:400; letter-spacing:-.035em; margin:3px 0 13px; }
+    .starter-list { margin:0 0 27px; padding:0; list-style:none; font-size:12px; }
+    .starter-list li { padding:8px 0; display:flex; gap:14px; color:var(--soft); }
+    .starter-list code { color:var(--accent); min-width:21px; }
+    .starter-list strong { font-weight:400; color:var(--ink); }
+    .side-panel { padding:25px 20px; border-left:1px solid var(--line); background:var(--panel); font-size:11px; }
+    .side-panel h3 { text-transform:uppercase; letter-spacing:.13em; font-size:10px; color:var(--soft); font-weight:400; margin:0 0 20px; }
+    .side-panel dl { margin:0; }
+    .side-panel dt { color:var(--soft); margin-top:18px; font-size:10px; }
+    .side-panel dd { margin:4px 0 0; overflow-wrap:anywhere; }
+    .side-panel .connected { color:var(--signal); }
+    .side-panel hr { border:0; border-top:1px solid var(--line); margin:28px 0 20px; }
+    .key-row { display:flex; justify-content:space-between; gap:10px; color:var(--soft); margin-top:12px; }
+    kbd { font:10px/1.4 inherit; color:var(--ink); }
+    .composer { margin-top:auto; border:1px solid var(--accent); background:var(--panel); padding:14px 16px; min-height:80px; }
+    .composer p { margin:0; color:var(--soft); font-size:12px; }
+    .caret { color:var(--accent); margin-right:10px; }
+    .composer .hint { display:flex; justify-content:space-between; margin-top:18px; color:var(--soft); font-size:10px; gap:12px; }
+    .composer .hint b { color:var(--accent); font-weight:400; }
+    .terminal-bottom { padding:10px 18px; border-top:1px solid var(--line); display:flex; gap:18px; font-size:10px; color:var(--soft); }
+    .terminal-bottom .right { margin-left:auto; }
+    .terminal-bottom .active { color:var(--accent); }
+    .thread-title { display:flex; align-items:center; justify-content:space-between; gap:16px; margin-bottom:22px; padding-bottom:14px; border-bottom:1px solid var(--line); }
+    .thread-title strong { font-size:16px; font-weight:500; }
+    .thread-title small { color:var(--accent); font-size:10px; }
+    .request { padding:12px 15px; background:var(--panel); font-size:12px; margin-bottom:22px; }
+    .request small { display:block; color:var(--soft); font-size:9px; margin-bottom:6px; letter-spacing:.12em; }
+    .response-label { color:var(--accent); font-size:11px; margin:0 0 9px; }
+    .response-text { margin:0 0 17px; font-size:12px; max-width:66ch; }
+    .tool-row { display:flex; gap:12px; font-size:11px; color:var(--soft); padding:7px 0; }
+    .tool-row .tick { color:var(--signal); }
+    .tool-row span:last-child { margin-left:auto; font-size:10px; }
+    .diff { border-top:1px solid var(--line); border-bottom:1px solid var(--line); margin:14px 0 20px; font-size:11px; }
+    .diff-label { padding:8px 0; color:var(--soft); display:flex; justify-content:space-between; gap:14px; }
+    .diff pre { margin:0; padding:8px 0 12px; white-space:pre-wrap; color:var(--signal); }
+    .session-screen .composer { margin-top:10px; }
+    .providers-screen h2 { margin:0; font-size:25px; font-weight:400; letter-spacing:-.04em; }
+    .providers-screen > p { color:var(--soft); font-size:12px; margin:10px 0 28px; max-width:53ch; }
+    .profile { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:12px; padding:17px 0; border-top:1px solid var(--line); font-size:12px; }
+    .profile small { display:block; color:var(--soft); margin-top:5px; font-size:10px; }
+    .profile .selected { color:var(--accent); font-size:10px; align-self:center; }
+    .profile .saved { color:var(--soft); font-size:10px; align-self:center; }
+    .command-note { margin:24px 0 28px; color:var(--soft); font-size:11px; line-height:2; }
+    .command-note code { color:var(--ink); overflow-wrap:anywhere; }
+    .caption { display:flex; justify-content:space-between; gap:24px; padding:15px 0; color:var(--soft); font:12px/1.6 system-ui,sans-serif; }
+    .caption strong { color:var(--ink); font-weight:500; }
+    .direction-copy { display:none; max-width:75ch; }
+    body:has(#neon:checked) .copy-neon,body:has(#amber:checked) .copy-amber,body:has(#ghost:checked) .copy-ghost { display:block; }
+    footer { display:flex; justify-content:space-between; gap:20px; padding:18px 0 8px; border-top:1px solid var(--line); color:var(--soft); font-size:10px; }
+    body:has(#amber:checked) { --base:oklch(16% .014 70); --panel:oklch(21% .018 70); --accent:oklch(85% .16 83); --second:oklch(74% .15 40); --line:oklch(35% .027 70); --soft:oklch(74% .025 83); --ink:oklch(95% .022 83); }
+    body:has(#amber:checked) .workspace { grid-template-columns:184px minmax(0,1fr); }
+    body:has(#amber:checked) .side-panel { grid-column:1; grid-row:1; border-left:0; border-right:1px solid var(--line); background:var(--base); }
+    body:has(#amber:checked) .canvas { grid-column:2; background:var(--panel); }
+    body:has(#amber:checked) .terminal-top { background:var(--accent); color:var(--base); }
+    body:has(#amber:checked) .terminal-top .mode { color:var(--base); }
+    body:has(#amber:checked) .hero-mark h2 { font-size:clamp(40px,4.9vw,67px); letter-spacing:-.07em; }
+    body:has(#amber:checked) .boot-id::before { content:"[ "; }
+    body:has(#amber:checked) .boot-id::after { content:" ]"; }
+    body:has(#amber:checked) .composer { background:var(--base); }
+    body:has(#ghost:checked) { --base:oklch(16% .012 270); --panel:oklch(20% .016 270); --accent:oklch(82% .105 295); --second:oklch(87% .05 230); --line:oklch(32% .019 270); --soft:oklch(74% .02 270); --ink:oklch(95% .01 270); }
+    body:has(#ghost:checked) .workspace { display:flex; flex-direction:column; }
+    body:has(#ghost:checked) .canvas { padding:28px 10% 20px; flex:1; }
+    body:has(#ghost:checked) .side-panel { order:-1; display:flex; align-items:center; gap:25px; padding:13px 20px; border-left:0; border-bottom:1px solid var(--line); background:var(--base); }
+    body:has(#ghost:checked) .side-panel h3,body:has(#ghost:checked) .side-panel hr,body:has(#ghost:checked) .side-panel .key-row,body:has(#ghost:checked) .side-panel .aside-note { display:none; }
+    body:has(#ghost:checked) .side-panel dl { display:flex; flex-wrap:wrap; gap:7px 20px; }
+    body:has(#ghost:checked) .side-panel dt { display:none; }
+    body:has(#ghost:checked) .side-panel dd { margin:0; font-size:10px; }
+    body:has(#ghost:checked) .hero-mark h2 { font-size:46px; font-weight:500; letter-spacing:-.07em; }
+    body:has(#ghost:checked) .tagline { margin:14px 0 22px; }
+    body:has(#ghost:checked) .composer { border-color:var(--line); background:var(--base); }
+    body:has(#ghost:checked) .home-screen .composer { margin-top:14px; }
+    body:has(#ghost:checked) .request { background:var(--base); border-bottom:1px solid var(--line); padding-left:0; }
+    @media (max-width:1100px) { .workbench { grid-template-columns:170px minmax(0,1fr); gap:20px; } .workspace { grid-template-columns:minmax(0,1fr) 185px; } .canvas { padding:24px 22px 18px; } .side-panel { padding:25px 15px; } .hero-mark .suffix { display:none; } }
+    @media (max-width:860px) { .lab { padding:24px 20px; } .masthead { padding:19px 20px; } .workbench { display:block; } .directions { flex-direction:row; gap:18px; margin-bottom:22px; } .choice { width:33.333%; padding:12px 0; border-bottom:1px solid var(--line); } .choice p { min-height:36px; } .aside-note { display:none; } .workspace { grid-template-columns:minmax(0,1fr) 190px; } .intro { display:block; } .intro p { margin-top:14px; max-width:65ch; } .terminal { min-height:590px; } }
+    @media (max-width:580px) { .masthead .eyebrow { font-size:9px; } .lab { padding:22px 12px 12px; } .intro { padding:0 6px; } .choice strong { font-size:11px; } .choice .number { font-size:9px; } .choice p { font-size:11px; } .directions { gap:12px; } .preview-toolbar { gap:10px; } .preview-toolbar > .eyebrow { display:none; } .screen-choice { padding:6px 12px; } .workspace,body:has(#amber:checked) .workspace { display:flex; flex-direction:column; } .side-panel,body:has(#ghost:checked) .side-panel { display:none; } .canvas,body:has(#ghost:checked) .canvas { padding:22px 17px 18px; } .hero-mark h2,body:has(#amber:checked) .hero-mark h2 { font-size:52px; } .terminal-top { padding:10px 13px; font-size:10px; } .terminal { min-height:570px; } .terminal-bottom { gap:12px; padding:10px 13px; } .terminal-bottom .right { display:none; } .caption { display:block; } .caption > span { display:block; margin-top:8px; } footer { display:block; } footer span { display:block; margin-top:5px; } .composer .hint { font-size:9px; } }
+    @media (prefers-reduced-motion:reduce) { * { scroll-behavior:auto !important; } }
+  </style>
+</head>
+<body>
+  <header class="masthead"><div class="wordmark">CBM-<b>01</b></div><div class="eyebrow">Independent coding agent / Design lab</div></header>
+  <main class="lab">
+    <div class="intro"><div><div class="eyebrow">Visual directions / 001</div><h1>Your terminal. Your signal.</h1></div><p>Three ways CBM-01 could feel. Switch the direction and screen to compare. Everything inside the terminal is sample content.</p></div>
+    <div class="workbench">
+      <aside>
+        <fieldset><legend class="eyebrow">01 / Direction</legend><div class="directions">
+          <label class="choice"><input type="radio" name="direction" id="neon" value="neon" checked><span class="number">A</span><strong>Neon Circuit</strong><p>Cyan signal. Hard edges.<br>A focused operator console.</p><span class="swatches" aria-hidden="true"><i style="--swatch:oklch(86% .14 185)"></i><i style="--swatch:oklch(79% .14 345)"></i><i style="--swatch:oklch(31% .017 195)"></i></span></label>
+          <label class="choice"><input type="radio" name="direction" id="amber" value="amber"><span class="number">B</span><strong>Amber Grid</strong><p>Warm phosphor. Dense type.<br>Industrial control room.</p><span class="swatches" aria-hidden="true"><i style="--swatch:oklch(85% .16 83)"></i><i style="--swatch:oklch(74% .15 40)"></i><i style="--swatch:oklch(35% .027 70)"></i></span></label>
+          <label class="choice"><input type="radio" name="direction" id="ghost" value="ghost"><span class="number">C</span><strong>Ghostline</strong><p>Soft violet. Quiet chrome.<br>The work takes the room.</p><span class="swatches" aria-hidden="true"><i style="--swatch:oklch(82% .105 295)"></i><i style="--swatch:oklch(87% .05 230)"></i><i style="--swatch:oklch(32% .019 270)"></i></span></label>
+        </div></fieldset>
+        <p class="aside-note">Each direction changes density and layout as well as color.<br><br>Use Tab and arrow keys to compare. No choice is saved or applied to your CLI.</p>
+      </aside>
+      <section class="preview-column" aria-label="Terminal concept preview">
+        <div class="preview-toolbar"><fieldset><legend class="eyebrow">02 / Screen</legend><div class="screens"><label class="screen-choice"><input type="radio" name="screen" id="home" value="home" checked>Home</label><label class="screen-choice"><input type="radio" name="screen" id="session" value="session">Session</label><label class="screen-choice"><input type="radio" name="screen" id="providers" value="providers">Providers</label></div></fieldset><span class="eyebrow">Static sample / Not a live session</span></div>
+        <div class="terminal">
+          <div class="terminal-top"><span>CBM-01 &nbsp;/&nbsp; ~/workspace</span><span class="mode">READY</span></div>
+          <div class="workspace">
+            <div class="canvas">
+              <section class="screen home-screen" aria-label="Home concept">
+                <p class="boot-id">LOCAL WORKSPACE / ONLINE</p>
+                <div class="hero-mark"><h2>CBM-<span>01</span></h2><span class="suffix">[ AGENT ]</span></div>
+                <p class="tagline">A direct line from idea to working code.<br>Connected to your provider. Ready when you are.</p>
+                <h3 class="prompt-title">What are we building?</h3>
+                <ul class="starter-list"><li><code>01</code><span><strong>Find your way in</strong><br>Explain how this project fits together</span></li><li><code>02</code><span><strong>Make the next move</strong><br>Build a feature or track down a bug</span></li><li><code>03</code><span><strong>Check the work</strong><br>Review the changes before they ship</span></li></ul>
+                <div class="composer"><p><span class="caret">❯</span> Describe a task…</p><div class="hint"><span><b>DEFAULT</b> &nbsp; / commands</span><span>Enter to send</span></div></div>
+              </section>
+              <section class="screen session-screen" aria-label="Session concept">
+                <div class="thread-title"><strong>Refine the empty state</strong><small>DEFAULT</small></div>
+                <div class="request"><small>YOU</small>Make the empty state useful. Give people a clear next step.</div>
+                <p class="response-label">CBM-01</p>
+                <p class="response-text">I found the empty-state component. I’ll add a short explanation and one action to create a project.</p>
+                <div class="tool-row"><b class="tick">✓</b> Read src/empty-state.tsx <span>complete</span></div>
+                <div class="tool-row"><b class="tick">✓</b> Edit empty state <span>+2 / −1</span></div>
+                <div class="diff"><div class="diff-label"><span>src/empty-state.tsx</span><span>2 additions</span></div><pre>+ &lt;h2&gt;Start your first project&lt;/h2&gt;
++ &lt;button&gt;Create project&lt;/button&gt;</pre></div>
+                <p class="response-text">The next action is clear. Keyboard focus and the existing creation flow are preserved.</p>
+                <div class="composer"><p><span class="caret">❯</span> Follow up…</p><div class="hint"><span><b>DEFAULT</b> &nbsp; / commands</span><span>Enter to send</span></div></div>
+              </section>
+              <section class="screen providers-screen" aria-label="Providers concept">
+                <p class="boot-id">CONNECTIONS / 02 PROFILES</p><h2>Your providers.</h2><p>Choose where your next task runs. Profiles and model selection stay under your control.</p>
+                <div class="profile"><div>Personal <small>OpenAI-compatible / API key</small></div><span class="selected">● ACTIVE</span></div>
+                <div class="profile"><div>Work <small>Subscription / OAuth</small></div><span class="saved">SAVED</span></div>
+                <div class="command-note"><code>/providers:select &lt;name&gt;</code><br>Switch the active profile<br><br><code>/model</code><br>Browse the active provider’s models</div>
+                <div class="composer"><p><span class="caret">❯</span> /providers</p><div class="hint"><span><b>COMMAND</b> &nbsp; sample view</span><span>Enter to send</span></div></div>
+              </section>
+            </div>
+            <aside class="side-panel" aria-label="Sample workspace details"><h3>Workspace signal</h3><dl><dt>PROJECT</dt><dd>workspace / main</dd><dt>PROVIDER</dt><dd>Personal</dd><dt>CONNECTION</dt><dd class="connected">● Ready</dd><dt>MODE</dt><dd>Default</dd></dl><hr><h3>Quick reference</h3><div class="key-row"><span>Commands</span><kbd>/</kbd></div><div class="key-row"><span>Model</span><kbd>/model</kbd></div><div class="key-row"><span>Providers</span><kbd>/providers</kbd></div><p class="aside-note">Your task stays in view.<br>The details stay close.</p></aside>
+          </div>
+          <div class="terminal-bottom"><span class="active">● CBM-01</span><span>Personal / Default</span><span class="right">/help &nbsp; keyboard reference</span></div>
+        </div>
+        <div class="caption"><div class="direction-copy copy-neon"><strong>A / Neon Circuit.</strong> Cyan carries focus and identity. A compact status column keeps the conversation clear. Strongest starting point for the requested cyberpunk feel.</div><div class="direction-copy copy-amber"><strong>B / Amber Grid.</strong> A warm status strip and a left rail give this direction a denser, industrial rhythm. Less neon, more control-room instrument.</div><div class="direction-copy copy-ghost"><strong>C / Ghostline.</strong> A compact wordmark, one reading column, and a quiet status row put output first. Cyberpunk detail with less visual noise.</div><span>Exploratory layout</span></div>
+      </section>
+    </div>
+    <footer><span>CBM-01 / Concept study / 10 September 2026</span><span>Terminal build will retain light mode, narrow layouts, and color fallbacks.</span></footer>
+  </main>
+</body>
+</html>
