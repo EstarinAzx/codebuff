@@ -9,7 +9,7 @@ tags: [context, active-work, branding]
 
 ## Current focus
 
-RD-X-96 **v1.5.1 release is in progress** on `modded`. The user authorized publication and requested the live npm authentication links when needed. The release includes the compact display name, `rdx` command, hot-pink/cyan palette, transparent canvas and removal of the duplicate label beside the large banner. GitHub assets must be published and verified before npm.
+RD-X-96 **v1.5.1 is public on GitHub; npm approval is pending**. The user authorized publication and was given the live native npm approval link. The fixed release source/tag is `0f688c0bfbf1cf95206c91a738536d52792b361d`. All three archives and the public GitHub digests are verified. This epic's `artifacts/rd-x-96-release-1-5-1/index.md` owns process handles and remaining verification; check the active publish result before retrying.
 
 ## State
 
@@ -23,7 +23,7 @@ RD-X-96 **v1.5.1 release is in progress** on `modded`. The user authorized publi
 
 ## Next
 
-Finish v1.5.1 checks and isolated builds, publish verified GitHub assets, then publish npm through its native approval flow. Supply the user the exact live npm URL if authentication is requested. Verify public downloads and the installed `rdx` command, then refresh this handoff. The completed CBM-01 implementation relay must not restart. [MERGE-STRATEGY.md](../MERGE-STRATEGY.md) owns publication ordering.
+After native npm approval, verify registry-direct latest and the published tarball against the prepared candidate, install `codebuff-mod@1.5.1` globally, verify `rdx` and compatibility aliases, compare provider fingerprints, and refresh this handoff. If approval expires, obtain a new native URL and show it in chat; preserve account/package security. The completed CBM-01 implementation relay must not restart. [MERGE-STRATEGY.md](../MERGE-STRATEGY.md) owns publication ordering.
 
 ## Published baseline and limits
 
